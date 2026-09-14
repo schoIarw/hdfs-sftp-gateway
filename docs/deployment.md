@@ -1,38 +1,229 @@
-# HFG 部署步骤
+# HFG 安装与运行手册
 
-## 1. 构建产物
+HFG 提供两种安装方式：Native（直接运行 Java JAR）和 Docker。生产环境采用相同的双进程架构：`hfg-manager.jar` 是管理 API 与 React 页面合并包，`hfg-gateway.jar` 提供 FTP/SFTP 数据面。前端不再单独部署，访问 Manager 的 `http(s)://<host>:8080/` 即可打开管理页面。
 
-执行 `make verify`，产物为：
+Native 模式更适合使用 systemd、Keepalived 和宿主机 VIP 的生产主备节点；Docker 模式适合开发、验收及已有容器运维体系的环境。两种模式都需要外部 HDFS，生产环境还应使用独立 PostgreSQL、Prometheus 和证书/Secret 管理设施。
 
-- `hfg-gateway-app/target/hfg-gateway-app-0.1.0-SNAPSHOT.jar`
-- `hfg-manager-api/target/hfg-manager-api-0.1.0-SNAPSHOT.jar`
-- `hfg-manager-web/dist`
-- `target/bom.json`
+## 一、构建发布包
 
-## 2. Manager
+### 1. 构建机要求
 
-1. 创建 PostgreSQL 数据库与专用账号。
-2. 注入数据库、管理员、Ed25519 和 gRPC mTLS Secret。
-3. 启动至少两个 Manager 实例，REST 与 gRPC 前分别配置健康检查负载均衡。
-4. Flyway 在启动时自动迁移；生产数据库账号需具备迁移权限，迁移完成后可切换最小权限账号。
-5. 配置 HDFS 集群、服务组和 Gateway 节点，再创建用户、目录、授权和流控策略。
-6. 发布服务组快照并确认 Gateway 的 `hfg_snapshot_version` 大于零。
+- Linux x86_64/arm64；
+- JDK 17，`JAVA_HOME` 指向该 JDK；
+- Node.js 24 和 npm（只在构建时使用）；
+- 可访问 Maven Central 与 npm registry。
 
-`deploy/docker/compose.yaml` 是开发/演示基线，默认关闭 gRPC 且不包含 HDFS，不代表生产高可用拓扑。
+```bash
+git clone git@github.com:schoIarw/hdfs-sftp-gateway.git
+cd hdfs-sftp-gateway
+make package
+```
 
-## 3. Gateway 主备
+`make package` 依次执行前端类型检查、前端测试、Vite 构建以及全部 Maven 测试。成功后交付：
 
-1. 两台节点安装同一 JAR、Hadoop XML、keytab、CA/客户端证书和相同 SFTP host key。
-2. 为两台节点设置不同 HFG_GATEWAY_ID，相同 HFG_SERVICE_GROUP_ID 和 VIP。
-3. 放通 FTP/SFTP、PASV 范围、Manager gRPC、HDFS RPC/DataNode 与本机 Actuator。
-4. 安装 systemd unit、健康脚本和按节点渲染的 Keepalived 配置。
-5. 先启动 Gateway，确认 readiness 和 21/22 监听，再启动 Keepalived。
-6. 确认只有 Active 持有 VIP，Standby 已取得相同签名快照。
+| 文件 | 用途 |
+|---|---|
+| `hfg-manager-api/target/hfg-manager-api-0.1.0-SNAPSHOT.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.0-SNAPSHOT.jar` | FTP/SFTP Gateway |
+| `target/bom.json` | CycloneDX 软件物料清单 |
 
-## 4. 上线顺序
+验证页面确实进入 Manager JAR：
 
-HDFS/Kerberos → PostgreSQL → Manager → Prometheus/告警 → Gateway Standby → Gateway Active → Keepalived/VIP → Web 反向代理。先用测试服务组和测试路径验证协议，再开放生产用户。
+```bash
+unzip -l hfg-manager-api/target/hfg-manager-api-*.jar \
+  | grep 'BOOT-INF/classes/static/index.html'
+```
 
-## 5. 回滚
+构建完成后的运行主机只需 Java 17，不需要安装 Node.js、npm 或 Nginx。
 
-应用版本回滚使用上一版 JAR/镜像。数据库迁移采用向前兼容策略，不自动执行 destructive undo。配置回滚必须重新发布一个更高版本、内容取自历史配置的签名快照；Gateway 拒绝安装低版本快照，不能通过修改文件版本强制回退。
+## 二、Native 安装
+
+### 1. 运行环境
+
+- 所有 Manager/Gateway 主机安装 Java 17 JRE；
+- PostgreSQL 17（开发可单实例，生产建议高可用）；
+- 可访问 HDFS NameNode/DataNode，Kerberos 环境需准备 `core-site.xml`、`hdfs-site.xml`、principal 和 keytab；
+- Gateway 主备节点安装 Keepalived、curl、iproute2；
+- 网络放通 21、22、FTP PASV 端口段、8080、19090，以及 HDFS 所需端口。
+
+建立运行用户与目录：
+
+```bash
+sudo useradd --system --home /var/lib/hfg --shell /usr/sbin/nologin hfg
+sudo install -d -o hfg -g hfg /opt/hfg /var/lib/hfg
+sudo install -d -o root -g hfg -m 0750 /etc/hfg /etc/hfg/pki
+sudo install -o hfg -g hfg -m 0550 \
+  hfg-manager-api/target/hfg-manager-api-*.jar /opt/hfg/hfg-manager.jar
+sudo install -o hfg -g hfg -m 0550 \
+  hfg-gateway-app/target/hfg-gateway-app-*.jar /opt/hfg/hfg-gateway.jar
+```
+
+### 2. 初始化 PostgreSQL
+
+以下命令由数据库管理员执行，密码必须替换：
+
+```sql
+CREATE ROLE hfg LOGIN PASSWORD 'CHANGE_ME';
+CREATE DATABASE hfg OWNER hfg ENCODING 'UTF8';
+```
+
+Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备份数据库；迁移账号可在迁移完成后切换为满足运行期最小权限的账号。
+
+### 3. 生成快照签名密钥
+
+```bash
+openssl genpkey -algorithm ED25519 -out hfg-snapshot-private.pem
+openssl pkey -in hfg-snapshot-private.pem -outform DER | base64 -w0; echo
+openssl pkey -in hfg-snapshot-private.pem -pubout -outform DER | base64 -w0; echo
+```
+
+第一段 Base64 配置为 Manager 的 `HFG_SNAPSHOT_PRIVATE_KEY_BASE64`，第二段配置为所有 Gateway 的 `HFG_SNAPSHOT_PUBLIC_KEY_BASE64`。私钥必须由 Secret 管理系统保存，不得提交到仓库。
+
+### 4. 配置并启动 Manager
+
+复制模板并填写数据库密码、管理员密码和私钥：
+
+```bash
+sudo install -o root -g hfg -m 0640 deploy/env/hfg-manager.env.example /etc/hfg/hfg-manager.env
+sudoedit /etc/hfg/hfg-manager.env
+```
+
+如启用生产 gRPC（默认 19090），还需将 Manager 服务端证书、私钥和 CA 放到 `/etc/hfg/pki`，并保持环境文件中的路径一致。首次验证可先设置 `HFG_RPC_ENABLED=false`。
+
+前台试运行便于查看错误：
+
+```bash
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; set +a; \
+  exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
+```
+
+服务化运行：
+
+```bash
+sudo install -o root -g root -m 0644 deploy/systemd/hfg-manager.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hfg-manager
+curl --fail http://127.0.0.1:8080/actuator/health/readiness
+```
+
+浏览器访问 `http://<manager-host>:8080/`。页面和 API 由同一个 JAR、同一个端口提供；API 使用 `HFG_ADMIN_USERNAME`/`HFG_ADMIN_PASSWORD` 进行 HTTP Basic 认证。
+
+### 5. 配置并启动 Gateway
+
+在每台主备节点分别复制模板：
+
+```bash
+sudo install -o root -g hfg -m 0640 deploy/env/hfg-gateway.env.example /etc/hfg/hfg-gateway.env
+sudoedit /etc/hfg/hfg-gateway.env
+```
+
+同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、`HFG_VIP`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID` 与 Kerberos principal 应按节点设置。把 Hadoop XML、keytab、mTLS 文件和持久化 SSH host key 放到配置指定位置，权限只授予 `hfg` 运行用户。当前版本中 Gateway 调用 Manager REST 时使用 Manager Basic 账号，因此 `HFG_MANAGER_USERNAME` 应与 `HFG_ADMIN_USERNAME` 一致，密码也应一致。
+
+直接前台运行：
+
+```bash
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-gateway.env; set +a; \
+  exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-gateway.jar'
+```
+
+生产建议使用仓库提供的 systemd unit。它以非 root 用户运行，并仅授予绑定 21/22 低位端口所需的 `CAP_NET_BIND_SERVICE`：
+
+```bash
+sudo install -o root -g root -m 0644 deploy/systemd/hfg-gateway.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hfg-gateway
+curl --fail http://127.0.0.1:18080/actuator/health/readiness
+```
+
+若不使用 systemd capability，可把 `HFG_FTP_PORT`/`HFG_SFTP_PORT` 改为 2121/2222，并相应修改防火墙、健康检查与入口端口映射。
+
+### 6. 配置 Keepalived 与 VIP
+
+每个 Active/Standby 服务组使用一份独立 VRID。将健康脚本安装到模板引用的位置，再按节点替换网卡、VRID、优先级、本机/对端地址和 VIP：
+
+```bash
+sudo install -o root -g root -m 0755 deploy/keepalived/hfg-gateway-health.sh /usr/local/bin/
+sudo install -o root -g root -m 0755 deploy/keepalived/hfg-role-change.sh /usr/local/bin/
+sudo cp deploy/keepalived/keepalived.conf.template /etc/keepalived/keepalived.conf
+sudoedit /etc/keepalived/keepalived.conf
+sudo keepalived --config-test=/etc/keepalived/keepalived.conf
+sudo systemctl enable --now keepalived
+```
+
+主节点优先级应高于备节点；两端 VRID、认证信息和 VIP 相同，单播地址互指。启动后用 `ip address show` 确认只有 Active 节点持有 VIP。
+
+### 7. Native 验收
+
+```bash
+systemctl --no-pager --full status hfg-manager hfg-gateway keepalived
+curl --fail http://127.0.0.1:8080/actuator/health/readiness
+curl --fail http://127.0.0.1:18080/actuator/health/readiness
+curl --fail http://127.0.0.1:8080/ | grep '<div id="root">'
+ftp <VIP>
+sftp -P 22 <ftp-user>@<VIP>
+```
+
+完成用户、目录、ACL 和流控策略配置并发布快照后，再验证列表、上传、下载、临时文件原子提交、配额拒绝和主备切换。
+
+## 三、Docker 安装
+
+### 1. Docker 环境要求
+
+- Docker Engine 24+ 与 Compose v2；
+- 至少 4 GiB 可用内存；
+- 可拉取基础镜像并可访问 HDFS；
+- 生产 Secret、证书、keytab 和 Hadoop XML 均通过只读 volume 或 Secret 挂载。
+
+### 2. 启动 Manager 演示栈
+
+仓库 Compose 会构建合并版 Manager，并启动 PostgreSQL 与 Prometheus，不再启动独立 Web/Nginx 容器：
+
+```bash
+export HFG_DB_PASSWORD='CHANGE_ME_DB'
+export HFG_ADMIN_PASSWORD='CHANGE_ME_ADMIN'
+export HFG_SNAPSHOT_PRIVATE_KEY_BASE64='<PKCS8_DER_BASE64>'
+docker compose -f deploy/docker/compose.yaml up -d --build
+docker compose -f deploy/docker/compose.yaml ps
+curl --fail http://127.0.0.1:8080/actuator/health/readiness
+```
+
+管理页面地址为 `http://127.0.0.1:8080/`。此 Compose 关闭 gRPC 且不包含 HDFS，仅作为本地开发/验收基线，不代表生产高可用拓扑。
+
+### 3. 构建并运行 Gateway 镜像
+
+```bash
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.0 .
+```
+
+FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
+
+```bash
+docker run -d --name hfg-gateway --restart unless-stopped \
+  --network host \
+  --env-file /etc/hfg/hfg-gateway.env \
+  -v /var/lib/hfg:/var/lib/hfg \
+  -v /etc/hfg:/etc/hfg:ro \
+  -v /etc/hadoop:/etc/hadoop:ro \
+  hfg-gateway:0.1.0
+```
+
+镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，配置、keytab、证书和 SSH host key 必须允许 UID 10001 读取。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。
+
+每个主备节点分别运行一个 Gateway 容器，配置原则与 Native 模式相同。Keepalived 建议仍运行在宿主机，并通过本机 `18080` readiness 与 21/22 监听状态决定是否持有 VIP。
+
+### 4. Docker 验收与停止
+
+```bash
+docker logs --tail 200 hfg-gateway
+curl --fail http://127.0.0.1:18080/actuator/health/readiness
+docker compose -f deploy/docker/compose.yaml logs --tail 200 hfg-manager
+docker compose -f deploy/docker/compose.yaml down
+```
+
+`down` 不删除命名卷；只有明确需要清除本地演示数据库时才使用 `down --volumes`。
+
+## 四、升级与回滚
+
+Native 升级先在 Standby 替换 JAR 并重启、验证后切换 VIP，再升级另一台；Manager 应逐实例滚动升级。Docker 使用新版本 tag 重建/替换容器，不要复用不可追踪的 `latest`。
+
+应用回滚使用上一版 JAR 或镜像。数据库迁移采用向前兼容策略，不自动执行 destructive undo；升级前必须备份。配置回滚应基于历史内容重新发布一个更高版本的签名快照，因为 Gateway 会拒绝安装低版本快照。

@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+.vscode
+**/node_modules
+**/dist
+**/target
+*.log
+*.pid
+*.keytab
+*.jks
+*.p12
+.env
+data

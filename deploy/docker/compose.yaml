@@ -26,8 +26,4 @@ services:
       HFG_PROMETHEUS_URL: http://prometheus:9090
     depends_on: {postgres: {condition: service_healthy}}
     ports: ["8080:8080"]
-  hfg-web:
-    build: {context: ../.., dockerfile: deploy/docker/Dockerfile.web}
-    depends_on: [hfg-manager]
-    ports: ["8088:80"]
 volumes: {hfg-postgres: {}}

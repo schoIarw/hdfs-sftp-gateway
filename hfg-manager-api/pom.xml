@@ -15,4 +15,5 @@
     <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-test</artifactId><scope>test</scope></dependency>
   </dependencies>
   <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>${spring-boot.version}</version><configuration><mainClass>io.github.scholiarw.hfg.manager.api.HfgManagerApplication</mainClass></configuration><executions><execution><goals><goal>repackage</goal></goals></execution></executions></plugin></plugins></build>
+  <profiles><profile><id>bundle-web</id><activation><property><name>hfg.bundle-web</name></property></activation><build><resources><resource><directory>src/main/resources</directory></resource><resource><directory>../hfg-manager-web/dist</directory><targetPath>static</targetPath><filtering>false</filtering></resource></resources></build></profile></profiles>
 </project>

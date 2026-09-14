@@ -1,6 +1,19 @@
+FROM node:24-alpine AS web-builder
+WORKDIR /src/hfg-manager-web
+COPY hfg-manager-web/package*.json ./
+RUN npm ci
+COPY hfg-manager-web/ ./
+RUN npm run build
+
+FROM eclipse-temurin:17-jdk-jammy AS java-builder
+WORKDIR /src
+COPY . .
+COPY --from=web-builder /src/hfg-manager-web/dist /src/hfg-manager-web/dist
+RUN ./mvnw --batch-mode -Dhfg.bundle-web=true -DskipTests package
+
 FROM eclipse-temurin:17-jre-jammy
 RUN useradd --system --uid 10001 --home /var/lib/hfg --shell /usr/sbin/nologin hfg && mkdir -p /app /etc/hfg/pki /var/lib/hfg && chown -R hfg:hfg /app /var/lib/hfg
-COPY hfg-manager-api/target/hfg-manager-api-*.jar /app/hfg-manager.jar
+COPY --from=java-builder /src/hfg-manager-api/target/hfg-manager-api-*.jar /app/hfg-manager.jar
 USER 10001
 EXPOSE 8080 19090
 ENTRYPOINT ["java","-XX:MaxRAMPercentage=75","-Djava.security.egd=file:/dev/urandom","-jar","/app/hfg-manager.jar"]

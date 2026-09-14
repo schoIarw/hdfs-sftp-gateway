@@ -16,7 +16,13 @@ class SecurityConfiguration {
     return http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/actuator/**"))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/actuator/health/**", "/actuator/prometheus")
+                auth.requestMatchers(
+                        "/",
+                        "/index.html",
+                        "/assets/**",
+                        "/favicon.ico",
+                        "/actuator/health/**",
+                        "/actuator/prometheus")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

@@ -1,5 +1,14 @@
 # HFG 配置参考
 
+Manager 的管理页面已经打包在 `hfg-manager.jar` 中，和 REST API 共用 `HFG_MANAGER_PORT`；生产运行不需要独立前端配置或 Nginx。Spring Boot 支持环境变量及外部 YAML，推荐将非敏感配置放在 `/etc/hfg/application.yaml`，用下面的方式加载：
+
+```bash
+java -jar /opt/hfg/hfg-manager.jar \
+  --spring.config.additional-location=file:/etc/hfg/application.yaml
+```
+
+本文和 `deploy/env/*.env.example` 采用环境变量作为标准部署接口。systemd 通过 `EnvironmentFile` 加载；手工运行时需先执行 `set -a; source <env-file>; set +a`，否则 shell 中未导出的变量不会传入 Java。
+
 ## Gateway 必填项
 
 | 环境变量 | 用途 | 示例 |
@@ -20,6 +29,7 @@
 | HFG_RPC_SERVER_NAME | TLS 服务名 | hfg-manager |
 | HFG_SFTP_HOST_KEY | 持久化 SSH 主机密钥 | /etc/hfg/ssh_host_ed25519_key |
 | HFG_VIP | FTP PASV 返回地址 | 10.0.10.20 |
+| HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | readiness/metrics 监听 | 127.0.0.1 / 18080 |
 
 生产使用 gRPC mTLS 分发快照，同时仍通过 Manager HTTPS REST 上报事件和申请精确配额。只有不使用周期配额且允许不汇总业务事件的隔离测试环境才可以省略 HFG_MANAGER_URL。本地开发可把 `HFG_RPC_ENABLED` 设为 false，此时同一 REST 基址还承担快照轮询。
 
@@ -42,8 +52,9 @@
 | HFG_SNAPSHOT_PRIVATE_KEY_BASE64 | Ed25519 PKCS#8 私钥 Base64 |
 | HFG_RPC_SERVER_CERT / HFG_RPC_SERVER_KEY / HFG_RPC_CA | gRPC 双向 TLS |
 | HFG_PROMETHEUS_URL | 固定 Prometheus 服务地址 |
+| HFG_MANAGER_PORT | Manager 页面与 REST API 端口，默认 8080 |
 
-HDFS 集群记录中的 `keytab_secret_ref` 只接受 `file:` URI，防止 Manager 任意解析外部 Secret。生产部署由 Secret 管理系统把 keytab 挂载到该文件路径。
+HDFS 集群记录中的 `keytab_secret_ref` 只接受 `file:` URI，防止 Manager 任意解析外部 Secret。生产部署由 Secret 管理系统把 keytab 挂载到该文件路径。当前版本 Gateway 上报事件及申请精确配额使用 Manager 的 Basic 账号，因此 `HFG_MANAGER_USERNAME`/`HFG_MANAGER_PASSWORD` 应配置为 Manager 管理账号；部署时必须限制 Manager 管理网访问并使用 TLS。
 
 ## Ed25519 快照密钥
 
