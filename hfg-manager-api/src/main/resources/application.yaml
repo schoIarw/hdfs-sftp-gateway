@@ -11,8 +11,11 @@ spring:
   jpa:
     open-in-view: false
     hibernate.ddl-auto: validate
+    properties:
+      hibernate.type.preferred_uuid_jdbc_type: CHAR
   flyway:
     enabled: true
+    locations: ${HFG_DB_MIGRATION_LOCATION:classpath:db/migration}
   servlet.multipart:
     max-file-size: 32MB
     max-request-size: 34MB
@@ -32,6 +35,13 @@ hfg:
     signing-private-key-base64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:}
   prometheus:
     base-url: ${HFG_PROMETHEUS_URL:http://127.0.0.1:9090}
+  logs:
+    url: ${HFG_LOGS_DB_URL:}
+    username: ${HFG_LOGS_DB_USERNAME:${HFG_DB_USERNAME:hfg}}
+    password: ${HFG_LOGS_DB_PASSWORD:${HFG_DB_PASSWORD}}
+    pool-size: ${HFG_LOGS_DB_POOL_SIZE:10}
+    retention-days: ${HFG_LOGS_RETENTION_DAYS:180}
+    precreate-days: ${HFG_LOGS_PRECREATE_DAYS:7}
   hdfs-bundles:
     path: ${HFG_HDFS_BUNDLE_PATH:/var/lib/hfg/hdfs-bundles}
   rpc:
