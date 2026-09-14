@@ -21,7 +21,10 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
       subscribers = new ConcurrentHashMap<>();
 
   ControlPlaneGrpcService(
-      SnapshotPublisher publisher, JdbcClient db, HdfsBundleService hdfsBundles, DatabaseDialect dialect) {
+      SnapshotPublisher publisher,
+      JdbcClient db,
+      HdfsBundleService hdfsBundles,
+      DatabaseDialect dialect) {
     this.publisher = publisher;
     this.db = db;
     this.hdfsBundles = hdfsBundles;
@@ -49,9 +52,10 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
   public void heartbeat(GatewayHeartbeat r, StreamObserver<HeartbeatAck> observer) {
     if (!authorized(r.getGatewayId(), r.getServiceGroupId(), observer)) return;
     Instant n = Instant.now();
-    db.sql(dialect.choose(
-            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,ip_address=excluded.ip_address,ftp_port=excluded.ftp_port,sftp_port=excluded.sftp_port,management_port=excluded.management_port,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at",
-            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on duplicate key update role=values(role),management_address=values(management_address),ip_address=values(ip_address),ftp_port=values(ftp_port),sftp_port=values(sftp_port),management_port=values(management_port),software_version=values(software_version),snapshot_version=values(snapshot_version),last_heartbeat_at=values(last_heartbeat_at),status='UP',updated_at=values(updated_at)"))
+    db.sql(
+            dialect.choose(
+                "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,ip_address=excluded.ip_address,ftp_port=excluded.ftp_port,sftp_port=excluded.sftp_port,management_port=excluded.management_port,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at",
+                "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on duplicate key update role=values(role),management_address=values(management_address),ip_address=values(ip_address),ftp_port=values(ftp_port),sftp_port=values(sftp_port),management_port=values(management_port),software_version=values(software_version),snapshot_version=values(snapshot_version),last_heartbeat_at=values(last_heartbeat_at),status='UP',updated_at=values(updated_at)"))
         .param("id", r.getGatewayId())
         .param("g", r.getServiceGroupId())
         .param("h", r.getHostname())
@@ -71,7 +75,8 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
             .param("g", r.getServiceGroupId())
             .query(Long.class)
             .single();
-    // A snapshot may have been published by another Manager instance. The shared management database
+    // A snapshot may have been published by another Manager instance. The shared management
+    // database
     // version check turns the gateway heartbeat into a cross-instance notification path.
     if (latest > r.getSnapshotVersion()) {
       try {

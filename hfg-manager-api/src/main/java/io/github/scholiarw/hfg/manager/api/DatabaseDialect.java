@@ -5,12 +5,17 @@ import org.springframework.stereotype.Component;
 
 @Component
 final class DatabaseDialect {
-  enum Vendor { POSTGRESQL, MYSQL }
+  enum Vendor {
+    POSTGRESQL,
+    MYSQL
+  }
+
   private final Vendor vendor;
 
   DatabaseDialect(DataSource dataSource) {
     try (var connection = dataSource.getConnection()) {
-      String product = connection.getMetaData().getDatabaseProductName().toLowerCase(java.util.Locale.ROOT);
+      String product =
+          connection.getMetaData().getDatabaseProductName().toLowerCase(java.util.Locale.ROOT);
       if (product.contains("postgresql")) vendor = Vendor.POSTGRESQL;
       else if (product.contains("mysql")) vendor = Vendor.MYSQL;
       else throw new IllegalStateException("Unsupported database: " + product);
@@ -19,6 +24,11 @@ final class DatabaseDialect {
     }
   }
 
-  boolean mysql() { return vendor == Vendor.MYSQL; }
-  String choose(String postgresql, String mysql) { return mysql() ? mysql : postgresql; }
+  boolean mysql() {
+    return vendor == Vendor.MYSQL;
+  }
+
+  String choose(String postgresql, String mysql) {
+    return mysql() ? mysql : postgresql;
+  }
 }

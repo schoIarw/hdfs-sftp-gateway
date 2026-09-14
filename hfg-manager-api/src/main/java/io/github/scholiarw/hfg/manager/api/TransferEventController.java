@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.*;
 class TransferEventController {
   private final BusinessLogService logs;
 
-  TransferEventController(BusinessLogService logs) { this.logs = logs; }
+  TransferEventController(BusinessLogService logs) {
+    this.logs = logs;
+  }
 
   @PostMapping
   @ResponseStatus(HttpStatus.NO_CONTENT)

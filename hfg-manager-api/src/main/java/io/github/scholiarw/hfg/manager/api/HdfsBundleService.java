@@ -23,7 +23,8 @@ class HdfsBundleService {
   private final DatabaseDialect dialect;
 
   HdfsBundleService(
-      JdbcClient db, DatabaseDialect dialect,
+      JdbcClient db,
+      DatabaseDialect dialect,
       @Value("${hfg.hdfs-bundles.path:/var/lib/hfg/hdfs-bundles}") Path root) {
     this.db = db;
     this.dialect = dialect;
@@ -67,9 +68,10 @@ class HdfsBundleService {
       replaceDirectory(directory, staging);
       Path savedBundle = directory.resolve("bundle.zip");
       Instant now = Instant.now();
-      db.sql(dialect.choose(
-              "insert into hdfs_cluster(id,name,default_fs,nameservice,kerberos_enabled,principal,keytab_secret_ref,config_resource_refs,bundle_path,bundle_sha256,status,created_at,updated_at) values(:id,:name,:fs,:ns,true,:principal,:key,:resources,:bundle,:sha,'ENABLED',:now,:now) on conflict(id) do update set name=excluded.name,default_fs=excluded.default_fs,nameservice=excluded.nameservice,kerberos_enabled=true,principal=excluded.principal,keytab_secret_ref=excluded.keytab_secret_ref,config_resource_refs=excluded.config_resource_refs,bundle_path=excluded.bundle_path,bundle_sha256=excluded.bundle_sha256,status='ENABLED',updated_at=excluded.updated_at",
-              "insert into hdfs_cluster(id,name,default_fs,nameservice,kerberos_enabled,principal,keytab_secret_ref,config_resource_refs,bundle_path,bundle_sha256,status,created_at,updated_at) values(:id,:name,:fs,:ns,true,:principal,:key,:resources,:bundle,:sha,'ENABLED',:now,:now) on duplicate key update name=values(name),default_fs=values(default_fs),nameservice=values(nameservice),kerberos_enabled=true,principal=values(principal),keytab_secret_ref=values(keytab_secret_ref),config_resource_refs=values(config_resource_refs),bundle_path=values(bundle_path),bundle_sha256=values(bundle_sha256),status='ENABLED',updated_at=values(updated_at)"))
+      db.sql(
+              dialect.choose(
+                  "insert into hdfs_cluster(id,name,default_fs,nameservice,kerberos_enabled,principal,keytab_secret_ref,config_resource_refs,bundle_path,bundle_sha256,status,created_at,updated_at) values(:id,:name,:fs,:ns,true,:principal,:key,:resources,:bundle,:sha,'ENABLED',:now,:now) on conflict(id) do update set name=excluded.name,default_fs=excluded.default_fs,nameservice=excluded.nameservice,kerberos_enabled=true,principal=excluded.principal,keytab_secret_ref=excluded.keytab_secret_ref,config_resource_refs=excluded.config_resource_refs,bundle_path=excluded.bundle_path,bundle_sha256=excluded.bundle_sha256,status='ENABLED',updated_at=excluded.updated_at",
+                  "insert into hdfs_cluster(id,name,default_fs,nameservice,kerberos_enabled,principal,keytab_secret_ref,config_resource_refs,bundle_path,bundle_sha256,status,created_at,updated_at) values(:id,:name,:fs,:ns,true,:principal,:key,:resources,:bundle,:sha,'ENABLED',:now,:now) on duplicate key update name=values(name),default_fs=values(default_fs),nameservice=values(nameservice),kerberos_enabled=true,principal=values(principal),keytab_secret_ref=values(keytab_secret_ref),config_resource_refs=values(config_resource_refs),bundle_path=values(bundle_path),bundle_sha256=values(bundle_sha256),status='ENABLED',updated_at=values(updated_at)"))
           .param("id", id)
           .param("name", name)
           .param("fs", defaultFs)

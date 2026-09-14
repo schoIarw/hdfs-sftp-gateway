@@ -35,9 +35,10 @@ class PermissionController {
       @PathVariable UUID userId,
       @PathVariable UUID directoryId,
       @Valid @RequestBody GrantRequest r) {
-    db.sql(dialect.choose(
-            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on conflict(user_id,directory_mapping_id) do update set access_mode=excluded.access_mode",
-            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on duplicate key update access_mode=values(access_mode)"))
+    db.sql(
+            dialect.choose(
+                "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on conflict(user_id,directory_mapping_id) do update set access_mode=excluded.access_mode",
+                "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on duplicate key update access_mode=values(access_mode)"))
         .param("id", UUID.randomUUID())
         .param("u", userId)
         .param("d", directoryId)

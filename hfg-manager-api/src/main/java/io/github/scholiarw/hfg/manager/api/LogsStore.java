@@ -12,7 +12,6 @@ import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,7 +39,8 @@ final class LogsStore {
       @Value("${hfg.logs.retention-days:180}") int retentionDays,
       @Value("${hfg.logs.precreate-days:7}") int precreateDays) {
     if (poolSize < 1 || retentionDays < 1 || precreateDays < 1) {
-      throw new IllegalArgumentException("Logs pool size, retention and precreate days must be positive");
+      throw new IllegalArgumentException(
+          "Logs pool size, retention and precreate days must be positive");
     }
     if (StringUtils.hasText(url)) {
       HikariConfig config = new HikariConfig();
@@ -70,8 +70,13 @@ final class LogsStore {
     maintainPartitions();
   }
 
-  JdbcClient jdbc() { return jdbc; }
-  DatabaseDialect.Vendor vendor() { return vendor; }
+  JdbcClient jdbc() {
+    return jdbc;
+  }
+
+  DatabaseDialect.Vendor vendor() {
+    return vendor;
+  }
 
   <T> T transaction(Function<JdbcClient, T> work) {
     return transactions.execute(status -> work.apply(jdbc));
@@ -81,7 +86,8 @@ final class LogsStore {
   void maintainPartitions() {
     LocalDate today = LocalDate.now(ZoneOffset.UTC);
     if (vendor == DatabaseDialect.Vendor.POSTGRESQL) {
-      for (int offset = 0; offset <= precreateDays; offset++) createPostgres(today.plusDays(offset));
+      for (int offset = 0; offset <= precreateDays; offset++)
+        createPostgres(today.plusDays(offset));
     } else {
       for (int offset = -1; offset <= precreateDays; offset++) createMysql(today.plusDays(offset));
     }
@@ -90,16 +96,26 @@ final class LogsStore {
 
   private void createPostgres(LocalDate day) {
     String name = partitionName(day);
-    jdbc.sql("create table if not exists " + name + " partition of logs for values from ('"
-            + day + "') to ('" + day.plusDays(1) + "')").update();
+    jdbc.sql(
+            "create table if not exists "
+                + name
+                + " partition of logs for values from ('"
+                + day
+                + "') to ('"
+                + day.plusDays(1)
+                + "')")
+        .update();
   }
 
   private void createMysql(LocalDate day) {
     String name = "p" + PARTITION_DATE.format(day);
     if (mysqlPartitions().contains(name)) return;
-    String ddl = "alter table logs reorganize partition p_future into (partition " + name
-        + " values less than ('" + day.plusDays(1)
-        + "'), partition p_future values less than (maxvalue))";
+    String ddl =
+        "alter table logs reorganize partition p_future into (partition "
+            + name
+            + " values less than ('"
+            + day.plusDays(1)
+            + "'), partition p_future values less than (maxvalue))";
     try {
       jdbc.sql(ddl).update();
     } catch (DataAccessException race) {
@@ -108,17 +124,21 @@ final class LogsStore {
   }
 
   private Set<String> mysqlPartitions() {
-    return new HashSet<>(jdbc.sql(
-        "select partition_name from information_schema.partitions "
-            + "where table_schema=database() and table_name='logs' and partition_name is not null")
-        .query(String.class).list());
+    return new HashSet<>(
+        jdbc.sql(
+                "select partition_name from information_schema.partitions "
+                    + "where table_schema=database() and table_name='logs' and partition_name is not null")
+            .query(String.class)
+            .list());
   }
 
   private void dropExpired(LocalDate cutoff) {
     if (vendor == DatabaseDialect.Vendor.POSTGRESQL) {
-      List<String> names = jdbc.sql(
-          "select tablename from pg_tables where schemaname=current_schema() and tablename like 'logs_%'")
-          .query(String.class).list();
+      List<String> names =
+          jdbc.sql(
+                  "select tablename from pg_tables where schemaname=current_schema() and tablename like 'logs_%'")
+              .query(String.class)
+              .list();
       for (String name : names) {
         LocalDate day = parsePartition(name, "logs_");
         if (day != null && day.isBefore(cutoff)) jdbc.sql("drop table if exists " + name).update();

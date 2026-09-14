@@ -16,7 +16,8 @@ class DirectoryController {
   private final DirectoryProvisioningService provisioner;
   private final DatabaseDialect dialect;
 
-  DirectoryController(JdbcClient db, DirectoryProvisioningService provisioner, DatabaseDialect dialect) {
+  DirectoryController(
+      JdbcClient db, DirectoryProvisioningService provisioner, DatabaseDialect dialect) {
     this.db = db;
     this.provisioner = provisioner;
     this.dialect = dialect;
@@ -24,9 +25,10 @@ class DirectoryController {
 
   @GetMapping
   List<Map<String, Object>> list() {
-    return db.sql(dialect.choose(
-            "select d.*,coalesce(string_agg(u.username||':'||g.access_mode,',' order by u.username),'') as user_bindings from directory_mapping d left join directory_grant g on g.directory_mapping_id=d.id left join ftp_user u on u.id=g.user_id group by d.id order by d.name",
-            "select d.*,coalesce(group_concat(concat(u.username,':',g.access_mode) order by u.username separator ','),'') as user_bindings from directory_mapping d left join directory_grant g on g.directory_mapping_id=d.id left join ftp_user u on u.id=g.user_id group by d.id order by d.name"))
+    return db.sql(
+            dialect.choose(
+                "select d.*,coalesce(string_agg(u.username||':'||g.access_mode,',' order by u.username),'') as user_bindings from directory_mapping d left join directory_grant g on g.directory_mapping_id=d.id left join ftp_user u on u.id=g.user_id group by d.id order by d.name",
+                "select d.*,coalesce(group_concat(concat(u.username,':',g.access_mode) order by u.username separator ','),'') as user_bindings from directory_mapping d left join directory_grant g on g.directory_mapping_id=d.id left join ftp_user u on u.id=g.user_id group by d.id order by d.name"))
         .query()
         .listOfRows();
   }
