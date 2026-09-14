@@ -65,6 +65,8 @@ final class LogsStore {
         .dataSource(dataSource)
         .locations("classpath:db/logs/" + vendor.name().toLowerCase(Locale.ROOT))
         .table("flyway_logs_schema_history")
+        .baselineOnMigrate(true)
+        .baselineVersion("0")
         .load()
         .migrate();
     maintainPartitions();
