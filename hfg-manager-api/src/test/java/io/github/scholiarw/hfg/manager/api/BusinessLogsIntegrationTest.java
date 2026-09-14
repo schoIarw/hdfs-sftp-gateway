@@ -98,7 +98,7 @@ class BusinessLogsIntegrationTest {
     Map<String, Object> transferLog =
         logs.jdbc()
             .sql("select * from logs where record_type='TRANSFER' and transfer_id=:id")
-            .param("id", databaseId(transfer))
+            .param("id", logs.id(transfer))
             .query()
             .singleRow();
     assertThat(transferLog.get("status")).isEqualTo("COMPLETED");
@@ -112,13 +112,13 @@ class BusinessLogsIntegrationTest {
     Long snapshots =
         logs.jdbc()
             .sql("select count(*) from logs where record_type='QUOTA' and user_id=:id")
-            .param("id", databaseId(user))
+            .param("id", logs.id(user))
             .query(Long.class)
             .single();
     assertThat(snapshots).isGreaterThanOrEqualTo(2);
   }
 
   private Object databaseId(UUID id) {
-    return dialect.mysql() ? id.toString() : id;
+    return dialect.id(id);
   }
 }

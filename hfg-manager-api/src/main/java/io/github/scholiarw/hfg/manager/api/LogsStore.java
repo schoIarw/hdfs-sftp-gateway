@@ -80,6 +80,12 @@ final class LogsStore {
     return vendor;
   }
 
+  Object id(Object value) {
+    if (value == null) return null;
+    if (vendor == DatabaseDialect.Vendor.MYSQL) return value.toString();
+    return value instanceof UUID ? value : UUID.fromString(value.toString());
+  }
+
   <T> T transaction(Function<JdbcClient, T> work) {
     return transactions.execute(status -> work.apply(jdbc));
   }

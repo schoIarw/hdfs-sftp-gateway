@@ -99,7 +99,7 @@ class DashboardController {
                 + "sum(case when status in('COMPLETED','FAILED','ABORTED') then 1 else 0 end) closed "
                 + "from logs where record_type='TRANSFER' and user_id=:user and log_date>=:fromDay "
                 + "and log_date<=:toDay and started_at>=:from and started_at<:to group by 1,2 order by 1")
-        .param("user", userId)
+        .param("user", logs.id(userId))
         .param("fromDay", utcDate(from))
         .param("toDay", utcDate(to))
         .param("from", java.sql.Timestamp.from(from))
@@ -127,7 +127,7 @@ class DashboardController {
                     + "coalesce(sum(case when status='COMPLETED' and ended_at>=:cutoff then file_size_bytes else 0 end),0) bytes "
                     + "from logs where record_type='TRANSFER' and user_id=:user and log_date>=:day group by direction")
             .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
-            .param("user", userId)
+            .param("user", logs.id(userId))
             .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
             .query()
             .listOfRows()) {
@@ -175,7 +175,7 @@ class DashboardController {
                     "select coalesce(sum(file_size_bytes),0)/60 from logs where record_type='TRANSFER' "
                         + "and user_id=:user and direction=:direction and status='COMPLETED' "
                         + "and log_date>=:day and ended_at>=:cutoff")
-                .param("user", policy.get("user_id"))
+                .param("user", logs.id(policy.get("user_id")))
                 .param("direction", direction)
                 .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
                 .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
@@ -230,7 +230,7 @@ class DashboardController {
             .param("toDay", utcDate(to))
             .param("from", java.sql.Timestamp.from(from))
             .param("to", java.sql.Timestamp.from(to));
-    if (userId != null) statement = statement.param("user", userId);
+    if (userId != null) statement = statement.param("user", logs.id(userId));
     return statement.query().listOfRows();
   }
 

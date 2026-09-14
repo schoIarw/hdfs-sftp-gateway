@@ -28,7 +28,7 @@ class QuotaReservationService {
       throw new IllegalArgumentException("Reservation cannot be negative");
     Map<String, Object> policy =
         db.sql("select * from traffic_policy where user_id=:u")
-            .param("u", userId)
+            .param("u", dialect.id(userId))
             .query()
             .singleRow();
     TrafficPolicy.Period period =
@@ -40,7 +40,7 @@ class QuotaReservationService {
             dialect.choose(
                 "insert into usage_window(user_id,direction,window_start,window_end) values(:u,:d,:s,:e) on conflict do nothing",
                 "insert ignore into usage_window(user_id,direction,window_start,window_end) values(:u,:d,:s,:e)"))
-        .param("u", userId)
+        .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .param("e", java.sql.Timestamp.from(window.endExclusive()))
@@ -49,7 +49,7 @@ class QuotaReservationService {
     Map<String, Object> usage =
         db.sql(
                 "select * from usage_window where user_id=:u and direction=:d and window_start=:s for update")
-            .param("u", userId)
+            .param("u", dialect.id(userId))
             .param("d", direction.name())
             .param("s", java.sql.Timestamp.from(window.startInclusive()))
             .query()
@@ -79,15 +79,15 @@ class QuotaReservationService {
                 + "revision=revision+1 where user_id=:u and direction=:d and window_start=:s")
         .param("f", files)
         .param("b", bytes)
-        .param("u", userId)
+        .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .update();
     db.sql(
             "insert into quota_reservation(id,user_id,direction,window_start,reserved_files,reserved_bytes,"
                 + "status,expires_at,created_at) values(:id,:u,:d,:s,:f,:b,'ACTIVE',:expires,:now)")
-        .param("id", id)
-        .param("u", userId)
+        .param("id", dialect.id(id))
+        .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .param("f", files)
@@ -108,7 +108,7 @@ class QuotaReservationService {
   void renew(UUID id) {
     db.sql("update quota_reservation set expires_at=:expires where id=:id and status='ACTIVE'")
         .param("expires", java.sql.Timestamp.from(Instant.now().plus(Duration.ofMinutes(15))))
-        .param("id", id)
+        .param("id", dialect.id(id))
         .update();
   }
 
@@ -131,7 +131,7 @@ class QuotaReservationService {
   private void settle(UUID id, long completedFiles, long completedBytes, String finalStatus) {
     Map<String, Object> reservation =
         db.sql("select * from quota_reservation where id=:id for update")
-            .param("id", id)
+            .param("id", dialect.id(id))
             .query()
             .singleRow();
     if (!"ACTIVE".equals(String.valueOf(reservation.get("status")))) return;
@@ -155,7 +155,7 @@ class QuotaReservationService {
     db.sql("update quota_reservation set status=:status,committed_at=:now where id=:id")
         .param("status", finalStatus)
         .param("now", java.sql.Timestamp.from(Instant.now()))
-        .param("id", id)
+        .param("id", dialect.id(id))
         .update();
     logs.recordQuotaAfterCommit(
         uuid(reservation.get("user_id")),

@@ -28,6 +28,12 @@ final class DatabaseDialect {
     return vendor == Vendor.MYSQL;
   }
 
+  Object id(Object value) {
+    if (value == null) return null;
+    if (mysql()) return value.toString();
+    return value instanceof java.util.UUID ? value : java.util.UUID.fromString(value.toString());
+  }
+
   String choose(String postgresql, String mysql) {
     return mysql() ? mysql : postgresql;
   }

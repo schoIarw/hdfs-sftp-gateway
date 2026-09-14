@@ -12,10 +12,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 final class BusinessLogService {
   private final JdbcClient management;
+  private final DatabaseDialect managementDialect;
   private final LogsStore logs;
 
-  BusinessLogService(JdbcClient management, LogsStore logs) {
+  BusinessLogService(
+      JdbcClient management, DatabaseDialect managementDialect, LogsStore logs) {
     this.management = management;
+    this.managementDialect = managementDialect;
     this.logs = logs;
   }
 
@@ -57,7 +60,7 @@ final class BusinessLogService {
         jdbc
             .sql(
                 "select log_date,started_at from logs where record_type='TRANSFER' and transfer_id=:id order by created_at desc limit 1")
-            .param("id", e.transferId())
+            .param("id", logs.id(e.transferId()))
             .query()
             .listOfRows()
             .stream()
@@ -76,7 +79,7 @@ final class BusinessLogService {
           .param("speed", speed)
           .param("error", e.errorCode() == null ? null : e.errorCode().name())
           .param("day", existing.get().get("log_date"))
-          .param("id", e.transferId())
+          .param("id", logs.id(e.transferId()))
           .update();
       return;
     }
@@ -90,8 +93,8 @@ final class BusinessLogService {
   private JdbcClient.StatementSpec bindEvent(JdbcClient.StatementSpec statement, TransferEvent e) {
     return statement
         .param("day", LocalDate.ofInstant(e.occurredAt(), ZoneOffset.UTC))
-        .param("id", e.transferId())
-        .param("user", e.userId())
+        .param("id", logs.id(e.transferId()))
+        .param("user", logs.id(e.userId()))
         .param("username", username(e.userId()))
         .param("protocol", e.protocol().name())
         .param("direction", e.direction().name())
@@ -114,7 +117,7 @@ final class BusinessLogService {
                     + "case when w.direction='UPLOAD' then p.period_upload_bytes else p.period_download_bytes end byte_limit "
                     + "from usage_window w join ftp_user u on u.id=w.user_id join traffic_policy p on p.user_id=w.user_id "
                     + "where w.user_id=:user and w.direction=:direction and w.window_start=:start")
-            .param("user", userId)
+            .param("user", managementDialect.id(userId))
             .param("direction", direction.name())
             .param("start", java.sql.Timestamp.from(start))
             .query()
@@ -131,8 +134,8 @@ final class BusinessLogService {
     logs.jdbc()
         .sql(sql)
         .param("day", LocalDate.ofInstant(now, ZoneOffset.UTC))
-        .param("id", UUID.randomUUID())
-        .param("user", userId)
+        .param("id", logs.id(UUID.randomUUID()))
+        .param("user", logs.id(userId))
         .param("username", row.get("username"))
         .param("direction", direction.name())
         .param("status", status)
@@ -152,7 +155,7 @@ final class BusinessLogService {
   private String username(UUID userId) {
     return management
         .sql("select username from ftp_user where id=:id")
-        .param("id", userId)
+        .param("id", managementDialect.id(userId))
         .query(String.class)
         .optional()
         .orElse("<deleted>");
