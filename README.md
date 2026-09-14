@@ -9,7 +9,8 @@ HFG (`hdfs-sftp-gateway`) exposes authenticated FTP and SFTP endpoints while sto
 - Versioned, signed configuration snapshots allow gateways to continue serving published users while Manager is unavailable.
 - Manager imports Hadoop XML and keytab as a validated ZIP; gateways receive HDFS configuration through the authenticated control channel.
 - Manager issues downloadable per-node gateway client certificates using Java cryptography APIs.
-- PostgreSQL stores configuration, audit and transfer records; Prometheus/Alertmanager handle operational metrics and alerts.
+- PostgreSQL 17 or MySQL 8 stores configuration and audit data; a configurable `logs` database stores partitioned transfer and quota analytics.
+- Prometheus is limited to JVM, process, thread, connection-pool and health metrics; business charts query the `logs` table.
 - Uploads are invisible until committed: write `.uploading/<transfer-id>.part`, close, then atomically rename.
 
 ## Modules
@@ -27,7 +28,7 @@ HFG (`hdfs-sftp-gateway`) exposes authenticated FTP and SFTP endpoints while sto
 | `hfg-gateway-control-client` | Versioned control-plane snapshot client |
 | `hfg-gateway-app` | Gateway process, readiness and metrics |
 | `hfg-manager-domain` | Management domain model and services |
-| `hfg-manager-infrastructure` | JPA, PostgreSQL and snapshot persistence |
+| `hfg-manager-infrastructure` | JPA, PostgreSQL/MySQL migrations and snapshot persistence |
 | `hfg-manager-api` | REST management API, Prometheus proxy and embedded management UI |
 | `hfg-manager-web` | React + TypeScript + Semi Design UI source (bundled into Manager JAR) |
 
@@ -57,3 +58,11 @@ Before production deployment, read:
 - [Configuration reference](docs/configuration.md)
 - [Deployment runbook](docs/deployment.md)
 - [Test and acceptance plan](docs/testing.md)
+
+
+## Database selection
+
+PostgreSQL is the default. For MySQL 8, set `HFG_DB_URL=jdbc:mysql://...` and
+`HFG_DB_MIGRATION_LOCATION=classpath:db/mysql`. Set `HFG_LOGS_DB_URL` to use a
+separate analytics database; leaving it empty stores the partitioned `logs` table in the
+management database. See the configuration and deployment guides for all variables.

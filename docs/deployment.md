@@ -2,7 +2,7 @@
 
 HFG 提供两种安装方式：Native（直接运行 Java JAR）和 Docker。生产环境采用相同的双进程架构：`hfg-manager.jar` 是管理 API 与 React 页面合并包，`hfg-gateway.jar` 提供 FTP/SFTP 数据面。前端不再单独部署，访问 Manager 的 `http(s)://<host>:8080/` 即可打开管理页面。
 
-Native 模式更适合使用 systemd、Keepalived 和宿主机 VIP 的生产主备节点；Docker 模式适合开发、验收及已有容器运维体系的环境。两种模式都需要外部 HDFS，生产环境还应使用独立 PostgreSQL、Prometheus 和证书/Secret 管理设施。
+Native 模式更适合使用 systemd、Keepalived 和宿主机 VIP 的生产主备节点；Docker 模式适合开发、验收及已有容器运维体系的环境。两种模式都需要外部 HDFS，生产环境还应使用独立 PostgreSQL/MySQL、Prometheus 和证书/Secret 管理设施。
 
 ## 一、构建发布包
 
@@ -41,7 +41,7 @@ unzip -l hfg-manager-api/target/hfg-manager-api-*.jar \
 ### 1. 运行环境
 
 - 所有 Manager/Gateway 主机安装 Java 17 JRE；
-- PostgreSQL 17（开发可单实例，生产建议高可用）；
+- PostgreSQL 17 或 MySQL 8.0+（推荐 MySQL 8.4 LTS；开发可单实例，生产建议高可用）；
 - 可访问 HDFS NameNode/DataNode；管理员需准备包含 Hadoop XML 与 keytab 的 ZIP 配置包；
 - Gateway 主备节点安装 Keepalived、curl、iproute2；
 - 网络放通 21、22、FTP PASV 端口段、8080、19090，以及 HDFS 所需端口。
@@ -58,7 +58,7 @@ sudo install -o hfg -g hfg -m 0550 \
   hfg-gateway-app/target/hfg-gateway-app-*.jar /opt/hfg/hfg-gateway.jar
 ```
 
-### 2. 初始化 PostgreSQL
+### 2. 初始化数据库
 
 以下命令由数据库管理员执行，密码必须替换：
 
@@ -67,7 +67,22 @@ CREATE ROLE hfg LOGIN PASSWORD 'CHANGE_ME';
 CREATE DATABASE hfg OWNER hfg ENCODING 'UTF8';
 ```
 
-Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备份数据库；迁移账号可在迁移完成后切换为满足运行期最小权限的账号。
+如选择 MySQL：
+
+```sql
+CREATE DATABASE hfg CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE USER 'hfg'@'%' IDENTIFIED BY 'CHANGE_ME';
+GRANT ALL PRIVILEGES ON hfg.* TO 'hfg'@'%';
+```
+
+MySQL 环境文件必须额外设置：
+
+```bash
+HFG_DB_URL='jdbc:mysql://mysql.example.com:3306/hfg?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
+HFG_DB_MIGRATION_LOCATION=classpath:db/mysql
+```
+
+Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备份数据库；迁移账号可在迁移完成后切换为满足运行期最小权限的账号。生产推荐单独创建 `hfg_logs` 数据库并通过 `HFG_LOGS_DB_URL` 接入；开发环境可留空并与管理表共库。
 
 ### 3. 生成快照签名密钥
 
@@ -178,7 +193,7 @@ sftp -P 22 <ftp-user>@<VIP>
 
 ### 2. 启动 Manager 演示栈
 
-仓库 Compose 会构建合并版 Manager，并启动 PostgreSQL 与 Prometheus，不再启动独立 Web/Nginx 容器：
+仓库提供 PostgreSQL 和 MySQL 两套 Compose。两者都会构建合并版 Manager 并启动 Prometheus，不再启动独立 Web/Nginx 容器：
 
 ```bash
 export HFG_DB_PASSWORD='CHANGE_ME_DB'
@@ -186,6 +201,11 @@ export HFG_ADMIN_PASSWORD='CHANGE_ME_ADMIN'
 export HFG_SNAPSHOT_PRIVATE_KEY_BASE64='<PKCS8_DER_BASE64>'
 docker compose -f deploy/docker/compose.yaml up -d --build
 docker compose -f deploy/docker/compose.yaml ps
+
+# 或 MySQL 8.4
+export HFG_MYSQL_ROOT_PASSWORD='CHANGE_ME_ROOT'
+docker compose -f deploy/docker/compose.mysql.yaml up -d --build
+docker compose -f deploy/docker/compose.mysql.yaml ps
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ```
 
@@ -228,3 +248,10 @@ docker compose -f deploy/docker/compose.yaml down
 Native 升级先在 Standby 替换 JAR 并重启、验证后切换 VIP，再升级另一台；Manager 应逐实例滚动升级。Docker 使用新版本 tag 重建/替换容器，不要复用不可追踪的 `latest`。
 
 应用回滚使用上一版 JAR 或镜像。数据库迁移采用向前兼容策略，不自动执行 destructive undo；升级前必须备份。配置回滚应基于历史内容重新发布一个更高版本的签名快照，因为 Gateway 会拒绝安装低版本快照。
+
+
+## 五、业务日志运维
+
+`logs` 使用 UTC 日分区，默认预建未来 7 天并保留 180 天。Manager readiness 包含 `logsDatabase` 健康项。上线前验证日志账号可执行 Flyway 和分区 DDL。
+
+业务看板仅查询 `logs`；Prometheus 只采集 JVM、GC、线程、进程 CPU、Hikari 连接池和 readiness 等运行指标。升级前同时备份管理库和日志库。旧版 `transfer_event` 表作为兼容历史表保留，但新事件不再写入；如需展示旧数据，应在上线前离线回填到 `logs`。

@@ -46,7 +46,12 @@ java -jar /opt/hfg/hfg-manager.jar \
 
 | 环境变量 | 用途 |
 |---|---|
-| HFG_DB_URL / HFG_DB_USERNAME / HFG_DB_PASSWORD | PostgreSQL |
+| HFG_DB_URL / HFG_DB_USERNAME / HFG_DB_PASSWORD | PostgreSQL 17 或 MySQL 8 管理库 |
+| HFG_DB_MIGRATION_LOCATION | PostgreSQL 留空；MySQL 设置 `classpath:db/mysql` |
+| HFG_LOGS_DB_URL / HFG_LOGS_DB_USERNAME / HFG_LOGS_DB_PASSWORD | 可选独立业务日志库；URL 留空时复用管理库 |
+| HFG_LOGS_DB_POOL_SIZE | 日志库连接池上限，默认 10 |
+| HFG_LOGS_RETENTION_DAYS | UTC 日分区保留天数，默认 180 |
+| HFG_LOGS_PRECREATE_DAYS | 预建未来日分区数，默认 7 |
 | HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员 |
 | HFG_SNAPSHOT_PRIVATE_KEY_BASE64 | Ed25519 PKCS#8 私钥 Base64 |
 | HFG_RPC_SERVER_CERT / HFG_RPC_SERVER_KEY / HFG_RPC_CA | gRPC 双向 TLS |
@@ -75,3 +80,27 @@ Manager 配置第一行产生的 PKCS#8 DER Base64，Gateway 配置第二行产�
 ## Keepalived
 
 为每个服务组从 `deploy/keepalived/keepalived.conf.template` 生成配置。主备必须使用相同 VRID/认证信息和不同优先级，单播地址互指。健康脚本同时检查 systemd、21/22 监听端口和 readiness。角色通知写入 `/var/lib/hfg/role`，再通过服务环境映射为 HFG_ROLE。
+
+
+## 管理库与业务日志库
+
+HFG 支持 PostgreSQL 17 和 MySQL 8.0+（推荐 8.4 LTS）。管理库保存用户、目录、权限、配置快照、审计和强一致配额账本。业务日志库的 `logs` 表保存上传/下载方向、协议、状态、用户、虚拟路径、文件名、文件字节数、开始/结束时间、耗时、平均传输速率，以及配额窗口快照。
+
+`logs` 按 UTC 日期分区。Manager 启动时执行独立 Flyway 日志迁移，创建当天和未来分区，并按保留期删除过期分区。所有 Manager 主机和数据库会话应使用 UTC。日志库可与管理库同库，也可独立部署；独立部署时数据库需预先创建，账号需具有建表、建索引和分区 DDL 权限。
+
+PostgreSQL 示例：
+
+```bash
+HFG_DB_URL=jdbc:postgresql://db:5432/hfg
+HFG_LOGS_DB_URL=jdbc:postgresql://logs-db:5432/hfg_logs
+```
+
+MySQL 示例：
+
+```bash
+HFG_DB_URL='jdbc:mysql://db:3306/hfg?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
+HFG_DB_MIGRATION_LOCATION=classpath:db/mysql
+HFG_LOGS_DB_URL='jdbc:mysql://logs-db:3306/hfg_logs?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
+```
+
+周期配额判断仍使用管理库的 `usage_window` 和 `quota_reservation` 事务行锁；`logs` 保存事务提交后的快照供看板查询，不参与并发扣减。

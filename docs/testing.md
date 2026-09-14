@@ -11,7 +11,7 @@ npm test -- --run
 npm run build
 ```
 
-后端 verify 执行 Java 17/Maven 版本限制、依赖收敛、Spotless 格式检查、单元测试、可执行 JAR 打包和 CycloneDX SBOM。CI 对 main push 和 pull request 执行相同门禁。
+后端 verify 执行 Java 17/Maven 版本限制、依赖收敛、Spotless 格式检查、单元测试、可执行 JAR 打包和 CycloneDX SBOM。CI 对 main push 和 pull request 执行相同门禁，并分别启动 PostgreSQL 17 与 MySQL 8.4 验证两套 Flyway 迁移和 Manager 上下文。
 
 ## 2. 当前自动化覆盖
 
@@ -31,10 +31,11 @@ npm run build
 | HDFS 配置包 | 仅提取 XML/keytab、ZIP Slip 拒绝 |
 | 用户 | 密码哈希与 revision 冲突 |
 | 前端 | 字节格式化、登录凭据生命周期、签名快照版本解析、TypeScript |
+| 数据库 | PostgreSQL/MySQL 管理迁移、日志迁移、UTC 日分区创建与 Manager 启动 |
 
 ## 3. 集成环境
 
-准备两台 Gateway、一套 HDFS HA、Kerberos KDC、PostgreSQL、两台 Manager、Prometheus、Keepalived VIP 和一台协议测试机。测试账号至少包含：读写、只读、禁用、过期、无配额、低配额、低速率和公钥认证用户。
+准备两台 Gateway、一套 HDFS HA、Kerberos KDC、PostgreSQL 或 MySQL、独立 logs 库、两台 Manager、Prometheus、Keepalived VIP 和一台协议测试机。测试账号至少包含：读写、只读、禁用、过期、无配额、低配额、低速率和公钥认证用户。
 
 ## 4. 协议验收
 
@@ -93,3 +94,13 @@ npm run build
 ## 8. 容量与耐久性
 
 以目标峰值连接数执行 4 小时 soak test，文件尺寸覆盖小文件、典型文件和大文件。观测 JVM heap、GC、线程、打开文件数、HDFS RPC、NameNode handler、PostgreSQL连接池、事件 WAL 增长和 p95/p99 吞吐。kill -9 后检查暂存文件可续传，过期暂存文件清理策略由运维作业按业务保留期执行。
+
+
+## 9. 业务日志验收
+
+1. 分别以 PostgreSQL 和 MySQL 启动 Manager，确认管理迁移与日志迁移 history 表互不冲突。
+2. 上报 STARTED/COMPLETED、FAILED、ABORTED 事件，核对用户名、文件名、字节、开始结束时间、耗时和平均速率，并验证重复 WAL 上报不重复计数。
+3. 跨 UTC 00:00 传输，确认记录归属开始事件的日期分区且结束更新成功。
+4. 触发配额预留、提交、过期释放，确认 `QUOTA` 快照与管理库最终值一致。
+5. 查询总览、用户历史、实时连接、流控当前/历史接口，确认 SQL 使用 `log_date` 分区裁剪。
+6. 抓取 `/actuator/prometheus`，确认不再存在文件路径、用户名、transfer ID 或业务传输计数；JVM、进程、线程、Hikari 和健康指标仍可用。

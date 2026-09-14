@@ -13,15 +13,16 @@ flowchart TB
   VIP -.故障切换.-> S["hfg-gateway Standby"]
   A --> H["HDFS HA"]
   S --> H
-  M["hfg-manager 集群"] --> DB["PostgreSQL"]
+  M["hfg-manager 集群"] --> DB["管理库 PostgreSQL / MySQL"]
+  M --> L["logs 日分区业务库"]
   M --> P["Prometheus"]
   M --"gRPC mTLS / 签名快照"--> A
   M --"gRPC mTLS / 签名快照"--> S
 ```
 
-每个服务组由一个 VIP、一个 Active 节点和一个 Standby 节点组成。可以部署多个互相独立的服务组，并共享同一套 Manager 和 PostgreSQL。Keepalived 只迁移 VIP；已有 TCP 会话不跨节点恢复，客户端必须重连。续传仅允许从 HDFS 暂存文件 EOF 继续。
+每个服务组由一个 VIP、一个 Active 节点和一个 Standby 节点组成。可以部署多个互相独立的服务组，并共享同一套 Manager 和 PostgreSQL/MySQL 管理库。Keepalived 只迁移 VIP；已有 TCP 会话不跨节点恢复，客户端必须重连。续传仅允许从 HDFS 暂存文件 EOF 继续。
 
-管理面可以横向部署。配置版本由 PostgreSQL advisory lock 串行生成；不同 Manager 实例发布的快照会由网关心跳检测版本差异并推送到本实例的 gRPC 订阅者。
+管理面可以横向部署。配置版本通过锁定服务组记录串行生成，兼容 PostgreSQL 与 MySQL；不同 Manager 实例发布的快照会由网关心跳检测版本差异并推送到本实例的 gRPC 订阅者。
 
 ## 3. 模块边界
 
@@ -38,7 +39,7 @@ flowchart TB
 | hfg-gateway-control-client | Ed25519 验签、原子快照落盘、mTLS gRPC | Manager 业务实现 |
 | hfg-gateway-app | 组装数据面、健康检查、指标、事件 WAL | 管理页面 |
 | hfg-manager-domain | 用户领域服务与乐观锁契约 | Web/JPA |
-| hfg-manager-infrastructure | JPA、Flyway、PostgreSQL 实现 | 协议 |
+| hfg-manager-infrastructure | JPA、Flyway、PostgreSQL/MySQL 实现 | 协议 |
 | hfg-manager-api | REST、gRPC、配额租约、目录配置、审计、Prometheus 代理 | 页面 |
 | hfg-manager-web | new-api 风格管理页面 | Hadoop/数据库 |
 
@@ -70,8 +71,8 @@ flowchart TB
 | 上传/下载字节每秒 | Gateway | 按用户、方向的 Token Bucket |
 | 上传/下载并发 | Gateway | 公平 Semaphore |
 | 最大连接 | FTP 协议层；SFTP 由传输并发约束 | 快照策略 |
-| 周期文件数 | Manager + PostgreSQL | 事务行锁精确预留 |
-| 周期字节数 | Manager + PostgreSQL | 64 MiB 租约分段预留 |
+| 周期文件数 | Manager + 管理库 | 事务行锁精确预留 |
+| 周期字节数 | Manager + 管理库 | 64 MiB 租约分段预留 |
 | HDFS namespace/space quota | HDFS | DistributedFileSystem quota |
 
 配额租约有过期回收。传输完成提交实际用量，失败释放预留；即使 Manager 提交调用异常，本地并发许可也必须释放。周期使用账号配置的时区计算 DAY、WEEK、MONTH 边界。
@@ -91,8 +92,8 @@ flowchart TB
 ## 6. 数据一致性
 
 - 用户写操作使用 HTTP `If-Match` revision 和 JPA `@Version`。
-- 配置快照版本在事务内按服务组加 PostgreSQL advisory lock。
-- 传输事件主键为 `transfer_id + event_sequence`，批量上报幂等。
+- 配置快照版本在事务内锁定服务组记录，避免多 Manager 生成重复版本。
+- 传输事件按 `transfer_id` 幂等合并为一条生命周期记录，开始/结束时间和平均速率写入 `logs` 日分区。
 - Gateway 先写本地 JSON Lines WAL，再批量上报，网络失败保留待重试。
 - 周期配额依赖数据库行锁，不能用 Prometheus 指标代替结算账本。
 - 目录创建采用最终一致性：数据库先提交 PENDING，后台任务配置 HDFS，结果变为 READY 或 FAILED。
@@ -108,7 +109,7 @@ flowchart TB
 
 ## 8. 可观测性
 
-Gateway 与 Manager 暴露 `/actuator/health/readiness` 和 `/actuator/prometheus`。指标标签只使用协议、方向、状态、错误码和服务组等低基数字段，不把用户名、路径、transfer ID 放入 Prometheus 标签。用户级分析使用 PostgreSQL 事件表。
+Gateway 与 Manager 暴露 `/actuator/health/readiness` 和 `/actuator/prometheus`。指标标签只使用协议、方向、状态、错误码和服务组等低基数字段，不把用户名、路径、transfer ID 放入 Prometheus 标签。Prometheus 不保存用户名、路径、文件大小或配额等业务数据。用户、上传下载、速率和配额图表全部查询 `logs` 日分区；Prometheus 仅用于 JVM、GC、线程、进程、连接池和健康状态。
 
 ## 9. 已知运行约束
 
@@ -116,3 +117,12 @@ Gateway 与 Manager 暴露 `/actuator/health/readiness` 和 `/actuator/prometheu
 - HDFS rename 的原子性要求暂存路径与目标路径位于同一 HDFS 命名空间和目录树。
 - FTP 主动模式默认关闭；当前实现不提供 FTPS，生产公网接入应使用 SFTP 或在受控网络入口做 TLS 终止。
 - VChart/Semi Design 当前生产包较大，后续可按路由动态加载看板模块；依赖中的 lottie-web 会触发构建器 direct-eval 警告，业务代码未调用 eval。
+
+
+## 10. 双数据源与分区策略
+
+Manager 启动时识别管理库和日志库方言。管理 Flyway 使用 PostgreSQL 默认迁移目录，MySQL 使用 `classpath:db/mysql`；日志 Flyway 使用独立 history 表。日志数据源未配置时复用管理数据源，配置后建立独立 Hikari 连接池。
+
+传输开始创建 `TRANSFER` 记录，结束事件更新状态、文件大小、结束时间、耗时和平均速率。若 Gateway WAL 只重放结束事件，Manager 会补建终态记录。配额预留、提交和释放在管理事务提交后写入 `QUOTA` 快照。看板查询同时带 `log_date` 条件以触发分区裁剪。
+
+PostgreSQL 使用 range 子表，MySQL 使用 RANGE COLUMNS 分区。分区名仅由 UTC 日期生成，不存在用户输入拼接。保留期清理只删除符合固定日期命名规则且早于截止日的分区。

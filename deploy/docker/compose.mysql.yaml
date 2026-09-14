@@ -1,0 +1,40 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: hfg
+      MYSQL_USER: hfg
+      MYSQL_PASSWORD: ${HFG_DB_PASSWORD:?set HFG_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${HFG_MYSQL_ROOT_PASSWORD:?set HFG_MYSQL_ROOT_PASSWORD}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes: ["hfg-mysql:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ../prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/hfg-rules.yaml:/etc/prometheus/hfg-rules.yaml:ro
+    ports: ["9090:9090"]
+  hfg-manager:
+    build: {context: ../.., dockerfile: deploy/docker/Dockerfile.manager}
+    environment:
+      HFG_DB_URL: jdbc:mysql://mysql:3306/hfg?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
+      HFG_DB_MIGRATION_LOCATION: classpath:db/mysql
+      HFG_DB_USERNAME: hfg
+      HFG_DB_PASSWORD: ${HFG_DB_PASSWORD:?set HFG_DB_PASSWORD}
+      HFG_ADMIN_PASSWORD: ${HFG_ADMIN_PASSWORD:?set HFG_ADMIN_PASSWORD}
+      HFG_SNAPSHOT_PRIVATE_KEY_BASE64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:-}
+      HFG_RPC_ENABLED: "false"
+      HFG_PROMETHEUS_URL: http://prometheus:9090
+      HFG_LOGS_RETENTION_DAYS: 180
+      HFG_LOGS_PRECREATE_DAYS: 7
+    depends_on: {mysql: {condition: service_healthy}}
+    volumes: ["hfg-manager-data:/var/lib/hfg"]
+    ports: ["8080:8080"]
+volumes: {hfg-mysql: {}, hfg-manager-data: {}}
