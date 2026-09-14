@@ -14,9 +14,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/users/{userId}/traffic-policy")
 class TrafficPolicyController {
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
 
-  TrafficPolicyController(JdbcClient db) {
+  TrafficPolicyController(JdbcClient db, DatabaseDialect dialect) {
     this.db = db;
+    this.dialect = dialect;
   }
 
   @GetMapping
@@ -48,8 +50,9 @@ class TrafficPolicyController {
         r.periodDownloadBytes,
         r.period,
         r.timeZone);
-    db.sql(
-            "insert into traffic_policy(user_id,upload_bytes_per_second,download_bytes_per_second,upload_burst_bytes,download_burst_bytes,max_connections,max_upload_transfers,max_download_transfers,period,period_upload_files,period_download_files,period_upload_bytes,period_download_bytes,time_zone,updated_at) values(:u,:ur,:dr,:ub,:db,:mc,:mu,:md,:p,:uf,:df,:uby,:dby,:tz,:now) on conflict(user_id) do update set upload_bytes_per_second=excluded.upload_bytes_per_second,download_bytes_per_second=excluded.download_bytes_per_second,upload_burst_bytes=excluded.upload_burst_bytes,download_burst_bytes=excluded.download_burst_bytes,max_connections=excluded.max_connections,max_upload_transfers=excluded.max_upload_transfers,max_download_transfers=excluded.max_download_transfers,period=excluded.period,period_upload_files=excluded.period_upload_files,period_download_files=excluded.period_download_files,period_upload_bytes=excluded.period_upload_bytes,period_download_bytes=excluded.period_download_bytes,time_zone=excluded.time_zone,updated_at=excluded.updated_at")
+    db.sql(dialect.choose(
+            "insert into traffic_policy(user_id,upload_bytes_per_second,download_bytes_per_second,upload_burst_bytes,download_burst_bytes,max_connections,max_upload_transfers,max_download_transfers,period,period_upload_files,period_download_files,period_upload_bytes,period_download_bytes,time_zone,updated_at) values(:u,:ur,:dr,:ub,:db,:mc,:mu,:md,:p,:uf,:df,:uby,:dby,:tz,:now) on conflict(user_id) do update set upload_bytes_per_second=excluded.upload_bytes_per_second,download_bytes_per_second=excluded.download_bytes_per_second,upload_burst_bytes=excluded.upload_burst_bytes,download_burst_bytes=excluded.download_burst_bytes,max_connections=excluded.max_connections,max_upload_transfers=excluded.max_upload_transfers,max_download_transfers=excluded.max_download_transfers,period=excluded.period,period_upload_files=excluded.period_upload_files,period_download_files=excluded.period_download_files,period_upload_bytes=excluded.period_upload_bytes,period_download_bytes=excluded.period_download_bytes,time_zone=excluded.time_zone,updated_at=excluded.updated_at",
+            "insert into traffic_policy(user_id,upload_bytes_per_second,download_bytes_per_second,upload_burst_bytes,download_burst_bytes,max_connections,max_upload_transfers,max_download_transfers,period,period_upload_files,period_download_files,period_upload_bytes,period_download_bytes,time_zone,updated_at) values(:u,:ur,:dr,:ub,:db,:mc,:mu,:md,:p,:uf,:df,:uby,:dby,:tz,:now) on duplicate key update upload_bytes_per_second=values(upload_bytes_per_second),download_bytes_per_second=values(download_bytes_per_second),upload_burst_bytes=values(upload_burst_bytes),download_burst_bytes=values(download_burst_bytes),max_connections=values(max_connections),max_upload_transfers=values(max_upload_transfers),max_download_transfers=values(max_download_transfers),period=values(period),period_upload_files=values(period_upload_files),period_download_files=values(period_download_files),period_upload_bytes=values(period_upload_bytes),period_download_bytes=values(period_download_bytes),time_zone=values(time_zone),updated_at=values(updated_at)"))
         .param("u", userId)
         .param("ur", r.uploadBytesPerSecond)
         .param("dr", r.downloadBytesPerSecond)

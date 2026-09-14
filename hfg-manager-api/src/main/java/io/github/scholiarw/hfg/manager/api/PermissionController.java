@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/users/{userId}/grants")
 class PermissionController {
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
 
-  PermissionController(JdbcClient db) {
+  PermissionController(JdbcClient db, DatabaseDialect dialect) {
     this.db = db;
+    this.dialect = dialect;
   }
 
   @GetMapping
@@ -33,8 +35,9 @@ class PermissionController {
       @PathVariable UUID userId,
       @PathVariable UUID directoryId,
       @Valid @RequestBody GrantRequest r) {
-    db.sql(
-            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on conflict(user_id,directory_mapping_id) do update set access_mode=excluded.access_mode")
+    db.sql(dialect.choose(
+            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on conflict(user_id,directory_mapping_id) do update set access_mode=excluded.access_mode",
+            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on duplicate key update access_mode=values(access_mode)"))
         .param("id", UUID.randomUUID())
         .param("u", userId)
         .param("d", directoryId)

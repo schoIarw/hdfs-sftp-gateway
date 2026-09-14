@@ -17,12 +17,14 @@ class SystemController {
   private final JdbcClient db;
   private final HdfsBundleService bundles;
   private final GatewayCertificateService certificates;
+  private final DatabaseDialect dialect;
 
   SystemController(
-      JdbcClient db, HdfsBundleService bundles, GatewayCertificateService certificates) {
+      JdbcClient db, HdfsBundleService bundles, GatewayCertificateService certificates, DatabaseDialect dialect) {
     this.db = db;
     this.bundles = bundles;
     this.certificates = certificates;
+    this.dialect = dialect;
   }
 
   @PostMapping(value = "/hdfs-clusters/import", consumes = "multipart/form-data")
@@ -83,8 +85,9 @@ class SystemController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   void heartbeat(@PathVariable String id, @Valid @RequestBody GatewayHeartbeat r) {
     Instant n = Instant.now();
-    db.sql(
-            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,ip_address=excluded.ip_address,ftp_port=excluded.ftp_port,sftp_port=excluded.sftp_port,management_port=excluded.management_port,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at")
+    db.sql(dialect.choose(
+            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,ip_address=excluded.ip_address,ftp_port=excluded.ftp_port,sftp_port=excluded.sftp_port,management_port=excluded.management_port,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at",
+            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on duplicate key update role=values(role),management_address=values(management_address),ip_address=values(ip_address),ftp_port=values(ftp_port),sftp_port=values(sftp_port),management_port=values(management_port),software_version=values(software_version),snapshot_version=values(snapshot_version),last_heartbeat_at=values(last_heartbeat_at),status='UP',updated_at=values(updated_at)"))
         .param("id", id)
         .param("g", r.serviceGroupId())
         .param("h", r.hostname())

@@ -49,9 +49,9 @@ class SnapshotPublisher {
     if (privateKeyBase64.isBlank()) {
       throw new IllegalStateException("Snapshot signing key is not configured");
     }
-    db.sql("select pg_advisory_xact_lock(hashtext(:g))")
+    db.sql("select id from service_group where id=:g for update")
         .param("g", group)
-        .query(Long.class)
+        .query(String.class)
         .single();
     long version =
         db.sql("select coalesce(max(version),0)+1 from config_snapshot where service_group_id=:g")
@@ -172,7 +172,7 @@ class SnapshotPublisher {
   private static UserRow userRow(ResultSet rs) throws SQLException {
     var expiresAt = rs.getTimestamp("expires_at");
     return new UserRow(
-        rs.getObject("id", UUID.class),
+        uuid(rs.getObject("id")),
         rs.getString("username"),
         rs.getString("password_hash"),
         rs.getString("department"),
@@ -180,6 +180,10 @@ class SnapshotPublisher {
         rs.getString("service_group_id"),
         AccountStatus.valueOf(rs.getString("status")),
         expiresAt == null ? null : expiresAt.toInstant());
+  }
+
+  private static UUID uuid(Object value) {
+    return value instanceof UUID id ? id : UUID.fromString(String.valueOf(value));
   }
 
   private PrivateKey privateKey() throws Exception {
