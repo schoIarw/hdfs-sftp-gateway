@@ -29,7 +29,7 @@ npm run build
 | SFTP | authorized_keys 注释规范化、公钥校验 |
 | API | OpenSSH 公钥格式和 SHA-256 指纹 |
 | 用户 | 密码哈希与 revision 冲突 |
-| 前端 | 字节格式化、登录凭据生命周期、TypeScript |
+| 前端 | 字节格式化、登录凭据生命周期、签名快照版本解析、TypeScript |
 
 ## 3. 集成环境
 
