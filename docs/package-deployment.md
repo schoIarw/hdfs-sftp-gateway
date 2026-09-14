@@ -148,7 +148,21 @@ GRANT ALL PRIVILEGES ON hfg_logs.* TO 'hfg'@'%';
 
 日志库账号必须具有建表、建索引和分区 DDL 权限。生产升级前同时备份 `hfg` 与 `hfg_logs`。如不使用独立日志库，可将 `HFG_LOGS_DB_URL` 留空。
 
-### 3.4 配置 Manager
+### 3.4 生成配置快照签名密钥
+
+配置快照使用 Ed25519 签名。只在安全的 Manager 管理机执行：
+
+```bash
+openssl genpkey -algorithm ED25519 -out hfg-snapshot-private.pem
+openssl pkey -in hfg-snapshot-private.pem -outform DER | base64 -w0; echo
+openssl pkey -in hfg-snapshot-private.pem -pubout -outform DER | base64 -w0; echo
+```
+
+第一段 Base64 写入 Manager 的 `HFG_SNAPSHOT_PRIVATE_KEY_BASE64`，第二段写入所有 Gateway 的 `HFG_SNAPSHOT_PUBLIC_KEY_BASE64`。私钥必须存入 Secret 管理系统，不能进入代码仓库或普通备份。
+
+此处 openssl 只用于初始化配置快照签名密钥；Gateway mTLS 客户端证书仍由 Manager 使用 Java 密码学 API 生成并下载，不依赖 openssl。
+
+### 3.5 配置 Manager
 
 ```bash
 sudo install -o root -g hfg -m 0640 config/hfg-manager.env.example /etc/hfg/hfg-manager.env
@@ -169,6 +183,7 @@ HFG_LOGS_DB_PASSWORD=REPLACE_WITH_STRONG_PASSWORD
 HFG_ADMIN_USERNAME=admin
 HFG_ADMIN_PASSWORD=REPLACE_WITH_ADMIN_PASSWORD
 HFG_MANAGER_PORT=8080
+HFG_SNAPSHOT_PRIVATE_KEY_BASE64=REPLACE_WITH_PKCS8_DER_BASE64
 ```
 
 MySQL 必须改为：
@@ -193,7 +208,7 @@ HFG_RPC_CA_KEY=/etc/hfg/pki/ca.key
 
 `manager.crt` 必须包含 Gateway 配置的 `HFG_RPC_SERVER_NAME` 对应 DNS SAN。`ca.key` 为 PKCS#8 私钥，只供 Manager 内置 Java 证书签发逻辑使用，权限应为 `0640 root:hfg`。Gateway 客户端证书由管理页面生成并下载，不调用 openssl。
 
-### 3.5 首次启动 Manager
+### 3.6 首次启动 Manager
 
 先前台启动以观察迁移错误：
 
@@ -213,7 +228,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 
 浏览器访问 `http://<manager-ip>:8080/`。前端已经包含在 JAR 内，无需另装 Nginx 或 Node.js。
 
-### 3.6 上传 HDFS/Kerberos 配置
+### 3.7 上传 HDFS/Kerberos 配置
 
 准备 ZIP 包，至少包含实际集群需要的：
 
@@ -226,7 +241,7 @@ krb5.conf（如环境需要随包下发）
 
 在“系统管理 → HDFS 接入”上传 ZIP。Manager 会自动解压、校验 XML、识别 keytab principal 并使配置生效。HDFS 不配置独立“HDFS 用户”，访问身份以 keytab 中的 Kerberos principal 为准。随后创建服务组，填写该组 VIP 并绑定 HDFS 集群。
 
-### 3.7 生成和安装 Gateway 证书
+### 3.8 生成和安装 Gateway 证书
 
 在“系统管理 → Gateway 节点”中为每个节点填写唯一 Gateway ID、所属服务组、节点 IP、FTP/SFTP/管理端口和证书有效期，然后生成并下载证书 ZIP。Manager 使用 Java 密码学 API 签发，ZIP 包包含 `gateway.crt`、`gateway.key` 和 `ca.crt`。
 
@@ -240,7 +255,7 @@ sudo install -o root -g hfg -m 0640 ca.crt /etc/hfg/pki/ca.crt
 
 证书 CN、`HFG_GATEWAY_ID`、生成证书时选择的服务组必须一致。
 
-### 3.8 配置 Gateway
+### 3.9 配置 Gateway
 
 ```bash
 sudo install -o root -g hfg -m 0640 config/hfg-gateway.env.example /etc/hfg/hfg-gateway.env
@@ -282,7 +297,7 @@ sudo chmod 0640 /etc/hfg/ssh_host_ed25519_key
 
 在第一台生成后，通过安全渠道复制到同组 Standby。
 
-### 3.9 启动 Gateway
+### 3.10 启动 Gateway
 
 ```bash
 sudo systemctl daemon-reload
@@ -295,7 +310,7 @@ ss -lntp | grep -E ':(21|22|18080)\b'
 
 systemd unit 仅授予绑定 21/22 所需的 `CAP_NET_BIND_SERVICE`。若安全规范禁止 capability，将端口改为 2121/2222 并同步修改入口 NAT/防火墙。
 
-### 3.10 配置 Active/Standby 与 VIP
+### 3.11 配置 Active/Standby 与 VIP
 
 两台 Gateway 都执行：
 
@@ -311,7 +326,7 @@ ip address show
 
 替换网卡名、VIP、VRID、本机/对端 IP 和优先级。Active 候选节点优先级高于 Standby；同组 VRID 和 VIP 相同，不同服务组的 VRID 必须不同。确认只有一台持有 VIP，停止当前 Active 的 Gateway 后 VIP 应迁移到 Standby。
 
-### 3.11 Native 功能验收
+### 3.12 Native 功能验收
 
 在管理页面创建 FTP/SFTP 用户，绑定虚拟目录和 HDFS 目录，配置读写权限、流控与配额，发布配置快照，然后执行：
 
@@ -381,10 +396,13 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 
 ### 4.3 生产运行 Manager 容器
 
-按 Native 章节准备 `/etc/hfg/hfg-manager.env`、`/etc/hfg/pki` 和 `/var/lib/hfg`：
+按 Native 章节准备 `/etc/hfg/hfg-manager.env`、`/etc/hfg/pki` 和 `/var/lib/hfg`。容器使用固定 UID/GID 10001，挂载目录需显式授权：
 
 ```bash
-sudo chown -R 10001:10001 /var/lib/hfg
+sudo chown root:10001 /etc/hfg
+sudo chmod 0750 /etc/hfg
+sudo chown -R 10001:10001 /etc/hfg/pki /var/lib/hfg
+sudo chmod 0700 /etc/hfg/pki
 docker run -d --name hfg-manager --restart unless-stopped \
   --platform linux/amd64 \
   --env-file /etc/hfg/hfg-manager.env \
@@ -404,7 +422,12 @@ FTP PASV 和 VIP 涉及大段端口及返回地址，Linux 生产节点推荐 ho
 ```bash
 sudo cp config/hfg-gateway.env.example /etc/hfg/hfg-gateway.env
 sudo vi /etc/hfg/hfg-gateway.env
-sudo chown -R 10001:10001 /var/lib/hfg
+sudo chown root:10001 /etc/hfg
+sudo chmod 0750 /etc/hfg
+sudo chown -R 10001:10001 /etc/hfg/pki /var/lib/hfg
+sudo chown 10001:10001 /etc/hfg/ssh_host_ed25519_key
+sudo chmod 0700 /etc/hfg/pki
+sudo chmod 0600 /etc/hfg/ssh_host_ed25519_key
 export HFG_VERSION=0.1.0
 docker compose -f docker/compose.gateway.yaml up -d
 docker compose -f docker/compose.gateway.yaml ps

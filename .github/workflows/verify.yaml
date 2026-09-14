@@ -120,6 +120,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "v${HFG_RELEASE_VERSION}" >/dev/null 2>&1; then
+            gh release delete "v${HFG_RELEASE_VERSION}" --cleanup-tag --yes
+          fi
           gh release create "v${HFG_RELEASE_VERSION}" \
             "dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64.tar.gz" \
             "dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64-docker-images.tar.gz" \

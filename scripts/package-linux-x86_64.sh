@@ -50,6 +50,7 @@ install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.postgresql.yaml" "${S
 install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.mysql.yaml" "${STAGE_DIR}/docker/"
 install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.gateway.yaml" "${STAGE_DIR}/docker/"
 install -m 0644 "${ROOT_DIR}/docs/package-deployment.md" "${STAGE_DIR}/docs/"
+install -m 0644 "${ROOT_DIR}/docs/deployment.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/configuration.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/testing.md" "${STAGE_DIR}/docs/"
 
