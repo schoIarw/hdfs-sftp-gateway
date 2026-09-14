@@ -110,8 +110,7 @@ class BusinessLogsIntegrationTest {
     var reservation = quotas.reserve(user, TransferDirection.UPLOAD, 1, 4096);
     quotas.commit(reservation.id(), 1, 4096);
     Long snapshots =
-        logs
-            .jdbc()
+        logs.jdbc()
             .sql("select count(*) from logs where record_type='QUOTA' and user_id=:id")
             .param("id", databaseId(user))
             .query(Long.class)
