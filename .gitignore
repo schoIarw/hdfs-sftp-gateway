@@ -1,0 +1,17 @@
+.idea/
+.vscode/
+target/
+**/target/
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+*.tsbuildinfo
+**/*.tsbuildinfo
+.env
+*.log
+*.pid
+*.keytab
+*.jks
+*.p12
+data/
