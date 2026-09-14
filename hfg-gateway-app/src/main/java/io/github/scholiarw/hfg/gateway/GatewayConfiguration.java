@@ -51,11 +51,8 @@ class GatewayConfiguration {
   }
 
   @Bean
-  TransferEventSink transferEventSink(GatewayMetrics metrics, GatewayEventReporter reporter) {
-    return event -> {
-      metrics.publish(event);
-      reporter.publish(event);
-    };
+  TransferEventSink transferEventSink(GatewayEventReporter reporter) {
+    return reporter::publish;
   }
 
   @Bean
