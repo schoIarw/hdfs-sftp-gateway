@@ -27,7 +27,7 @@ class BusinessLogsIntegrationTest {
     String cluster = "cluster-" + suffix;
     String group = "group-" + suffix;
     UUID user = UUID.randomUUID();
-    Instant now = Instant.now();
+    Instant now = Instant.ofEpochMilli(System.currentTimeMillis());
 
     management
         .sql(
