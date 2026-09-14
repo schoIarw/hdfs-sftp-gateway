@@ -2,6 +2,8 @@
 
 HFG 提供两种安装方式：Native（直接运行 Java JAR）和 Docker。生产环境采用相同的双进程架构：`hfg-manager.jar` 是管理 API 与 React 页面合并包，`hfg-gateway.jar` 提供 FTP/SFTP 数据面。前端不再单独部署，访问 Manager 的 `http(s)://<host>:8080/` 即可打开管理页面。
 
+如使用 GitHub Release 中已经编译完成的 Linux x86_64 介质，请直接阅读 [编译介质分步部署手册](package-deployment.md)，目标服务器不需要源码、Maven、Node.js 或 npm。
+
 Native 模式更适合使用 systemd、Keepalived 和宿主机 VIP 的生产主备节点；Docker 模式适合开发、验收及已有容器运维体系的环境。两种模式都需要外部 HDFS，生产环境还应使用独立 PostgreSQL/MySQL、Prometheus 和证书/Secret 管理设施。
 
 ## 一、构建发布包
@@ -23,8 +25,8 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.0-SNAPSHOT.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.0-SNAPSHOT.jar` | FTP/SFTP Gateway |
+| `hfg-manager-api/target/hfg-manager-api-0.1.0.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.0.jar` | FTP/SFTP Gateway |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：

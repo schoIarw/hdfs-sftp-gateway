@@ -35,7 +35,7 @@ hfg:
     management-address: ${HFG_MANAGEMENT_ADDRESS:http://127.0.0.1:18080}
     advertised-address: ${HFG_NODE_IP:127.0.0.1}
     management-port: ${HFG_MANAGEMENT_PORT:18080}
-    software-version: 0.1.0-SNAPSHOT
+    software-version: ${HFG_SOFTWARE_VERSION:0.1.0}
     heartbeat-interval: ${HFG_HEARTBEAT_INTERVAL:PT10S}
   hdfs:
     runtime-path: ${HFG_HDFS_RUNTIME_PATH:/var/lib/hfg/hdfs-runtime}

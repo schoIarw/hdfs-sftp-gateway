@@ -73,3 +73,59 @@ jobs:
           ./mvnw --batch-mode -pl hfg-manager-api -am
           -Dtest=ManagerContextIntegrationTest,BusinessLogsIntegrationTest
           -Dsurefire.failIfNoSpecifiedTests=false test
+
+  release-linux-x86_64:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release-x64]')
+    needs: [backend, mysql-context]
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    env:
+      HFG_RELEASE_VERSION: 0.1.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 17, cache: maven}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: hfg-manager-web/package-lock.json
+      - name: Verify x86_64 builder
+        run: test "$(uname -m)" = x86_64 && test "${{ runner.arch }}" = X64
+      - name: Build manager and gateway release JARs
+        run: |
+          npm ci
+          npm run build
+          cd ..
+          ./mvnw --batch-mode -Dhfg.bundle-web=true -DskipTests clean package
+        working-directory: hfg-manager-web
+      - name: Assemble native deployment medium
+        run: ./scripts/package-linux-x86_64.sh "$HFG_RELEASE_VERSION"
+      - name: Build linux/amd64 runtime images
+        run: |
+          MEDIA_DIR="dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64"
+          docker build --platform linux/amd64 \
+            -f "$MEDIA_DIR/docker/Dockerfile.manager" \
+            -t "hfg-manager:${HFG_RELEASE_VERSION}" "$MEDIA_DIR"
+          docker build --platform linux/amd64 \
+            -f "$MEDIA_DIR/docker/Dockerfile.gateway" \
+            -t "hfg-gateway:${HFG_RELEASE_VERSION}" "$MEDIA_DIR"
+          test "$(docker image inspect "hfg-manager:${HFG_RELEASE_VERSION}" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          test "$(docker image inspect "hfg-gateway:${HFG_RELEASE_VERSION}" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          docker save "hfg-manager:${HFG_RELEASE_VERSION}" "hfg-gateway:${HFG_RELEASE_VERSION}" \
+            | gzip -9 > "dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64-docker-images.tar.gz"
+          cd dist
+          sha256sum hfg-*.tar.gz > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${HFG_RELEASE_VERSION}" \
+            "dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64.tar.gz" \
+            "dist/hfg-${HFG_RELEASE_VERSION}-linux-x86_64-docker-images.tar.gz" \
+            "dist/SHA256SUMS" \
+            "target/bom.json#bom.json" \
+            --target "$GITHUB_SHA" \
+            --title "HFG ${HFG_RELEASE_VERSION} Linux x86_64" \
+            --notes "Linux x86_64 release. Includes the Native Java deployment medium, prebuilt linux/amd64 Manager and Gateway Docker images, SHA-256 checksums, SBOM, and the step-by-step deployment guide." \
+            --latest

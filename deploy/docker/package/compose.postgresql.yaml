@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hfg
+      POSTGRES_USER: hfg
+      POSTGRES_PASSWORD: ${HFG_DB_PASSWORD:?set HFG_DB_PASSWORD}
+      TZ: UTC
+    volumes: ["hfg-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hfg"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ../prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/hfg-rules.yaml:/etc/prometheus/hfg-rules.yaml:ro
+    ports: ["9090:9090"]
+  hfg-manager:
+    image: hfg-manager:${HFG_VERSION:-0.1.0}
+    platform: linux/amd64
+    environment:
+      HFG_DB_URL: jdbc:postgresql://postgres:5432/hfg
+      HFG_DB_USERNAME: hfg
+      HFG_DB_PASSWORD: ${HFG_DB_PASSWORD:?set HFG_DB_PASSWORD}
+      HFG_ADMIN_PASSWORD: ${HFG_ADMIN_PASSWORD:?set HFG_ADMIN_PASSWORD}
+      HFG_SNAPSHOT_PRIVATE_KEY_BASE64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:-}
+      HFG_RPC_ENABLED: "false"
+      HFG_PROMETHEUS_URL: http://prometheus:9090
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: ["hfg-manager-data:/var/lib/hfg"]
+    ports: ["8080:8080"]
+volumes:
+  hfg-postgres: {}
+  hfg-manager-data: {}
