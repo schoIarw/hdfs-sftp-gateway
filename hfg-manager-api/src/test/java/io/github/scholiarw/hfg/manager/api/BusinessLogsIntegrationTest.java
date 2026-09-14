@@ -96,8 +96,7 @@ class BusinessLogsIntegrationTest {
             "test-" + suffix));
 
     Map<String, Object> transferLog =
-        logs
-            .jdbc()
+        logs.jdbc()
             .sql("select * from logs where record_type='TRANSFER' and transfer_id=:id")
             .param("id", databaseId(transfer))
             .query()
