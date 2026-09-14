@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: hfg-gateway
+server:
+  address: ${HFG_MANAGEMENT_BIND:127.0.0.1}
+  port: ${HFG_MANAGEMENT_PORT:18080}
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+  endpoint.health.probes.enabled: true
+  metrics.tags:
+    application: hfg-gateway
+    gateway: ${HFG_GATEWAY_ID:hfg-gateway-01}
+hfg:
+  gateway-id: ${HFG_GATEWAY_ID:hfg-gateway-01}
+  service-group-id: ${HFG_SERVICE_GROUP_ID:group-01}
+  snapshot:
+    path: ${HFG_SNAPSHOT_PATH:/var/lib/hfg/snapshot.json}
+    verification-public-key-base64: ${HFG_SNAPSHOT_PUBLIC_KEY_BASE64}
+    manager-url: ${HFG_MANAGER_URL:}
+    username: ${HFG_MANAGER_USERNAME:gateway}
+    password: ${HFG_MANAGER_PASSWORD:}
+    refresh-interval: ${HFG_SNAPSHOT_REFRESH:PT10S}
+    event-wal-path: ${HFG_EVENT_WAL_PATH:/var/lib/hfg/events.wal}
+    event-report-interval: ${HFG_EVENT_REPORT_INTERVAL:PT5S}
+  rpc:
+    enabled: ${HFG_RPC_ENABLED:true}
+    host: ${HFG_RPC_HOST:127.0.0.1}
+    port: ${HFG_RPC_PORT:19090}
+    server-name: ${HFG_RPC_SERVER_NAME:hfg-manager}
+    ca-certificate: ${HFG_RPC_CA:/etc/hfg/pki/ca.crt}
+    client-certificate: ${HFG_RPC_CLIENT_CERT:/etc/hfg/pki/gateway.crt}
+    client-private-key: ${HFG_RPC_CLIENT_KEY:/etc/hfg/pki/gateway.key}
+    hostname: ${HOSTNAME:unknown}
+    role: ${HFG_ROLE:STANDBY}
+    management-address: ${HFG_MANAGEMENT_ADDRESS:http://127.0.0.1:18080}
+    software-version: 0.1.0-SNAPSHOT
+    heartbeat-interval: ${HFG_HEARTBEAT_INTERVAL:PT10S}
+  hdfs:
+    default-fs: ${HFG_HDFS_DEFAULT_FS:hdfs://nameservice1}
+    configuration-resources: ${HFG_HDFS_RESOURCES:}
+    kerberos-principal: ${HFG_KERBEROS_PRINCIPAL:}
+    keytab-path: ${HFG_KERBEROS_KEYTAB:}
+    proxy-users: ${HFG_HDFS_PROXY_USERS:true}
+  ftp:
+    enabled: ${HFG_FTP_ENABLED:true}
+    bind-address: ${HFG_FTP_BIND:0.0.0.0}
+    port: ${HFG_FTP_PORT:21}
+    passive-ports: ${HFG_FTP_PASSIVE_PORTS:30000-31000}
+    passive-external-address: ${HFG_VIP:}
+    active-mode-enabled: ${HFG_FTP_ACTIVE_MODE:false}
+    idle-timeout-seconds: ${HFG_FTP_IDLE_TIMEOUT:300}
+  sftp:
+    enabled: ${HFG_SFTP_ENABLED:true}
+    bind-address: ${HFG_SFTP_BIND:0.0.0.0}
+    port: ${HFG_SFTP_PORT:22}
+    host-key-path: ${HFG_SFTP_HOST_KEY:/etc/hfg/ssh_host_ed25519_key}

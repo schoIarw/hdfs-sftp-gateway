@@ -1,0 +1,30 @@
+global_defs {
+  router_id HFG_NODE_01
+  enable_script_security
+  script_user root
+}
+
+vrrp_script check_hfg_gateway {
+  script "/usr/local/bin/hfg-gateway-health.sh"
+  interval 2
+  timeout 2
+  fall 3
+  rise 2
+  weight -30
+}
+
+vrrp_instance HFG_GROUP_01 {
+  state BACKUP
+  interface {{NETWORK_INTERFACE}}
+  virtual_router_id {{VRID}}
+  priority {{PRIORITY}}
+  advert_int 1
+  authentication { auth_type PASS auth_pass {{VRRP_SECRET}} }
+  unicast_src_ip {{LOCAL_IP}}
+  unicast_peer { {{PEER_IP}} }
+  virtual_ipaddress { {{VIP_CIDR}} dev {{NETWORK_INTERFACE}} }
+  track_script { check_hfg_gateway }
+  notify_master "/usr/local/bin/hfg-role-change.sh ACTIVE"
+  notify_backup "/usr/local/bin/hfg-role-change.sh STANDBY"
+  notify_fault "/usr/local/bin/hfg-role-change.sh FAULT"
+}

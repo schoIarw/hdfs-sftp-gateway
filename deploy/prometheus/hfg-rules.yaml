@@ -1,0 +1,23 @@
+groups:
+  - name: hfg-availability
+    rules:
+      - alert: HfgGatewayDown
+        expr: up{job="hfg-gateway"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "HFG gateway is unreachable"}
+      - alert: HfgSnapshotUnavailable
+        expr: hfg_snapshot_version == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "HFG gateway has no valid configuration snapshot"}
+      - alert: HfgTransferFailureRateHigh
+        expr: sum(rate(hfg_transfer_events_total{status=~"failed|aborted"}[5m])) / clamp_min(sum(rate(hfg_transfer_events_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "More than 5% of HFG transfers are failing"}
+      - alert: HfgJvmHeapHigh
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.85
+        for: 15m
+        labels: {severity: warning}
+        annotations: {summary: "HFG JVM heap usage is high"}

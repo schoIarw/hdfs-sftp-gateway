@@ -1,0 +1,4 @@
+FROM nginx:1.29-alpine
+COPY hfg-manager-web/dist /usr/share/nginx/html
+COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
