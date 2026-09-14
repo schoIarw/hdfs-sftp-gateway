@@ -12,7 +12,7 @@ spring:
     open-in-view: false
     hibernate.ddl-auto: validate
     properties:
-      hibernate.type.preferred_uuid_jdbc_type: CHAR
+      hibernate.type.preferred_uuid_jdbc_type: ${HFG_UUID_JDBC_TYPE:UUID}
   flyway:
     enabled: true
     locations: ${HFG_DB_MIGRATION_LOCATION:classpath:db/migration}

@@ -60,6 +60,7 @@ jobs:
       HFG_TEST_DB_URL: jdbc:mysql://127.0.0.1:3306/hfg?serverTimezone=UTC
       HFG_DB_URL: jdbc:mysql://127.0.0.1:3306/hfg?serverTimezone=UTC
       HFG_DB_MIGRATION_LOCATION: classpath:db/mysql
+      HFG_UUID_JDBC_TYPE: CHAR
       HFG_DB_USERNAME: hfg
       HFG_DB_PASSWORD: hfg-test-password
       HFG_ADMIN_PASSWORD: hfg-test-admin-password

@@ -80,6 +80,7 @@ MySQL 环境文件必须额外设置：
 ```bash
 HFG_DB_URL='jdbc:mysql://mysql.example.com:3306/hfg?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
 HFG_DB_MIGRATION_LOCATION=classpath:db/mysql
+HFG_UUID_JDBC_TYPE=CHAR
 ```
 
 Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备份数据库；迁移账号可在迁移完成后切换为满足运行期最小权限的账号。生产推荐单独创建 `hfg_logs` 数据库并通过 `HFG_LOGS_DB_URL` 接入；开发环境可留空并与管理表共库。

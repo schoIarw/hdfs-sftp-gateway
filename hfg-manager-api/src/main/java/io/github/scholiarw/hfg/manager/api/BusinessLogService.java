@@ -67,7 +67,8 @@ final class BusinessLogService {
     long speed = duration == 0 ? e.bytes() : Math.round(e.bytes() * 1000.0 / duration);
     if (existing.isPresent()) {
       jdbc.sql(
-              "update logs set status=:status,file_size_bytes=:bytes,ended_at=:ended,duration_millis=:duration,average_bytes_per_second=:speed,error_code=:error,updated_at=:ended where log_date=:day and record_type='TRANSFER' and log_id=:id")
+              "update logs set log_date=:endDay,status=:status,file_size_bytes=:bytes,ended_at=:ended,duration_millis=:duration,average_bytes_per_second=:speed,error_code=:error,updated_at=:ended where log_date=:day and record_type='TRANSFER' and log_id=:id")
+          .param("endDay", LocalDate.ofInstant(e.occurredAt(), ZoneOffset.UTC))
           .param("status", e.status().name())
           .param("bytes", e.bytes())
           .param("ended", Timestamp.from(e.occurredAt()))

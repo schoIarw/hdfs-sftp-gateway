@@ -100,7 +100,7 @@ npm run build
 
 1. 分别以 PostgreSQL 和 MySQL 启动 Manager，确认管理迁移与日志迁移 history 表互不冲突。
 2. 上报 STARTED/COMPLETED、FAILED、ABORTED 事件，核对用户名、文件名、字节、开始结束时间、耗时和平均速率，并验证重复 WAL 上报不重复计数。
-3. 跨 UTC 00:00 传输，确认记录归属开始事件的日期分区且结束更新成功。
+3. 跨 UTC 00:00 传输，确认记录在完成时迁移至结束事件的日期分区且每日汇总正确。
 4. 触发配额预留、提交、过期释放，确认 `QUOTA` 快照与管理库最终值一致。
 5. 查询总览、用户历史、实时连接、流控当前/历史接口，确认 SQL 使用 `log_date` 分区裁剪。
 6. 抓取 `/actuator/prometheus`，确认不再存在文件路径、用户名、transfer ID 或业务传输计数；JVM、进程、线程、Hikari 和健康指标仍可用。

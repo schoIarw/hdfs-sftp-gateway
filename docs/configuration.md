@@ -48,6 +48,7 @@ java -jar /opt/hfg/hfg-manager.jar \
 |---|---|
 | HFG_DB_URL / HFG_DB_USERNAME / HFG_DB_PASSWORD | PostgreSQL 17 或 MySQL 8 管理库 |
 | HFG_DB_MIGRATION_LOCATION | PostgreSQL 留空；MySQL 设置 `classpath:db/mysql` |
+| HFG_UUID_JDBC_TYPE | PostgreSQL 使用 `UUID`（默认）；MySQL 使用 `CHAR` |
 | HFG_LOGS_DB_URL / HFG_LOGS_DB_USERNAME / HFG_LOGS_DB_PASSWORD | 可选独立业务日志库；URL 留空时复用管理库 |
 | HFG_LOGS_DB_POOL_SIZE | 日志库连接池上限，默认 10 |
 | HFG_LOGS_RETENTION_DAYS | UTC 日分区保留天数，默认 180 |
@@ -100,6 +101,7 @@ MySQL 示例：
 ```bash
 HFG_DB_URL='jdbc:mysql://db:3306/hfg?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
 HFG_DB_MIGRATION_LOCATION=classpath:db/mysql
+HFG_UUID_JDBC_TYPE=CHAR
 HFG_LOGS_DB_URL='jdbc:mysql://logs-db:3306/hfg_logs?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
 ```
 
