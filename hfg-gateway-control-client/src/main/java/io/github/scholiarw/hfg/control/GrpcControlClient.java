@@ -38,6 +38,7 @@ public final class GrpcControlClient implements AutoCloseable {
     var builder =
         NettyChannelBuilder.forAddress(settings.host(), settings.port())
             .sslContext(ssl)
+            .maxInboundMessageSize(34 * 1024 * 1024)
             .keepAliveTime(30, TimeUnit.SECONDS);
     if (settings.serverName() != null && !settings.serverName().isBlank())
       builder.overrideAuthority(settings.serverName());
@@ -98,10 +99,27 @@ public final class GrpcControlClient implements AutoCloseable {
                   .setManagementAddress(settings.managementAddress())
                   .setSoftwareVersion(settings.softwareVersion())
                   .setSnapshotVersion(store.version())
+                  .setIpAddress(settings.ipAddress())
+                  .setFtpPort(settings.ftpPort())
+                  .setSftpPort(settings.sftpPort())
+                  .setManagementPort(settings.managementPort())
                   .build());
     } catch (Exception e) {
       log.debug("Control-plane heartbeat failed: {}", e.getMessage());
     }
+  }
+
+  public HdfsBundle downloadHdfsBundle() {
+    if (channel == null) throw new IllegalStateException("Control-plane channel is not started");
+    HdfsBundleResponse response =
+        HfgControlPlaneGrpc.newBlockingStub(channel)
+            .withDeadlineAfter(30, TimeUnit.SECONDS)
+            .getHdfsBundle(
+                HdfsBundleRequest.newBuilder()
+                    .setGatewayId(settings.gatewayId())
+                    .setServiceGroupId(settings.serviceGroupId())
+                    .build());
+    return new HdfsBundle(response.getZip().toByteArray(), response.getSha256());
   }
 
   @Override
@@ -122,6 +140,12 @@ public final class GrpcControlClient implements AutoCloseable {
       String hostname,
       String role,
       String managementAddress,
+      String ipAddress,
+      int ftpPort,
+      int sftpPort,
+      int managementPort,
       String softwareVersion,
       Duration heartbeatInterval) {}
+
+  public record HdfsBundle(byte[] zip, String sha256) {}
 }

@@ -56,7 +56,6 @@ public class JpaUserRepositoryAdapter implements UserRepository {
         e.note,
         e.status,
         e.serviceGroupId,
-        e.hdfsEffectiveUser,
         e.expiresAt,
         e.createdAt,
         e.updatedAt,
@@ -75,7 +74,6 @@ public class JpaUserRepositoryAdapter implements UserRepository {
     e.note = u.note();
     e.status = u.status();
     e.serviceGroupId = u.serviceGroupId();
-    e.hdfsEffectiveUser = u.hdfsEffectiveUser();
     e.expiresAt = u.expiresAt();
     e.createdAt = u.createdAt();
     e.updatedAt = u.updatedAt();

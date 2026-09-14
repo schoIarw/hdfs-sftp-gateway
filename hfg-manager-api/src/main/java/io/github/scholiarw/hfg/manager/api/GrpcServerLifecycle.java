@@ -1,6 +1,7 @@
 package io.github.scholiarw.hfg.manager.api;
 
 import io.grpc.Server;
+import io.grpc.ServerInterceptors;
 import io.grpc.netty.shaded.io.grpc.netty.*;
 import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
 import java.io.File;
@@ -40,7 +41,13 @@ class GrpcServerLifecycle implements SmartLifecycle {
               .trustManager(new File(ca))
               .clientAuth(ClientAuth.REQUIRE)
               .build();
-      server = NettyServerBuilder.forPort(port).sslContext(ssl).addService(service).build().start();
+      server =
+          NettyServerBuilder.forPort(port)
+              .sslContext(ssl)
+              .maxInboundMessageSize(34 * 1024 * 1024)
+              .addService(ServerInterceptors.intercept(service, new GatewayIdentityInterceptor()))
+              .build()
+              .start();
     } catch (Exception e) {
       throw new IllegalStateException("Cannot start HFG mTLS gRPC server", e);
     }

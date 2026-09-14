@@ -36,7 +36,6 @@ public final class UserManagementService {
             command.note(),
             AccountStatus.ENABLED,
             command.serviceGroupId(),
-            command.hdfsEffectiveUser(),
             command.expiresAt(),
             now,
             now,
@@ -60,7 +59,6 @@ public final class UserManagementService {
             command.note(),
             old.status(),
             command.serviceGroupId(),
-            command.hdfsEffectiveUser(),
             command.expiresAt(),
             old.createdAt(),
             now,
@@ -90,7 +88,6 @@ public final class UserManagementService {
             old.note(),
             old.status(),
             old.serviceGroupId(),
-            old.hdfsEffectiveUser(),
             old.expiresAt(),
             old.createdAt(),
             clock.instant(),
@@ -125,7 +122,6 @@ public final class UserManagementService {
       String email,
       String note,
       String serviceGroupId,
-      String hdfsEffectiveUser,
       Instant expiresAt) {}
 
   public record UpdateUser(
@@ -135,7 +131,6 @@ public final class UserManagementService {
       String email,
       String note,
       String serviceGroupId,
-      String hdfsEffectiveUser,
       Instant expiresAt) {}
 
   public record Page(List<ManagedUser> items, long total, int page, int size) {}

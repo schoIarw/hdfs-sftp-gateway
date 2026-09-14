@@ -7,7 +7,6 @@ import io.github.scholiarw.hfg.policy.*;
 import io.github.scholiarw.hfg.protocol.ftp.*;
 import io.github.scholiarw.hfg.protocol.sftp.*;
 import io.github.scholiarw.hfg.storage.StorageClientFactory;
-import io.github.scholiarw.hfg.storage.hdfs.HdfsStorageClientFactory;
 import io.github.scholiarw.hfg.transfer.*;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
@@ -37,15 +36,8 @@ class GatewayConfiguration {
   }
 
   @Bean
-  StorageClientFactory storageFactory(GatewayProperties p) throws Exception {
-    var h = p.hdfs();
-    return new HdfsStorageClientFactory(
-        new HdfsStorageClientFactory.Settings(
-            h.defaultFs(),
-            h.configurationResources(),
-            h.kerberosPrincipal(),
-            h.keytabPath(),
-            h.proxyUsers()));
+  ReloadableHdfsStorageClientFactory storageFactory() {
+    return new ReloadableHdfsStorageClientFactory();
   }
 
   @Bean
@@ -93,6 +85,10 @@ class GatewayConfiguration {
                 r.hostname(),
                 r.role(),
                 r.managementAddress(),
+                r.advertisedAddress(),
+                p.ftp().port(),
+                p.sftp().port(),
+                r.managementPort(),
                 r.softwareVersion(),
                 r.heartbeatInterval()),
             store);

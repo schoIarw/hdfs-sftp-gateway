@@ -70,7 +70,6 @@ class JpaUserRepositoryAdapterTest {
         null,
         AccountStatus.ENABLED,
         "group",
-        "hdfs-user",
         null,
         now,
         now,

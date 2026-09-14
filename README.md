@@ -7,6 +7,8 @@ HFG (`hdfs-sftp-gateway`) exposes authenticated FTP and SFTP endpoints while sto
 - Multiple service groups, each consisting of one VIP and an Active/Standby HFG Gateway pair.
 - Direct HDFS streaming through a storage abstraction; protocol modules never import Hadoop classes.
 - Versioned, signed configuration snapshots allow gateways to continue serving published users while Manager is unavailable.
+- Manager imports Hadoop XML and keytab as a validated ZIP; gateways receive HDFS configuration through the authenticated control channel.
+- Manager issues downloadable per-node gateway client certificates using Java cryptography APIs.
 - PostgreSQL stores configuration, audit and transfer records; Prometheus/Alertmanager handle operational metrics and alerts.
 - Uploads are invisible until committed: write `.uploading/<transfer-id>.part`, close, then atomically rename.
 

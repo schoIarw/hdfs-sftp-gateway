@@ -1,43 +1,41 @@
 package io.github.scholiarw.hfg.manager.api;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.*;
+import java.security.Principal;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/system")
 class SystemController {
   private final JdbcClient db;
+  private final HdfsBundleService bundles;
+  private final GatewayCertificateService certificates;
 
-  SystemController(JdbcClient db) {
+  SystemController(
+      JdbcClient db, HdfsBundleService bundles, GatewayCertificateService certificates) {
     this.db = db;
+    this.bundles = bundles;
+    this.certificates = certificates;
+  }
+
+  @PostMapping(value = "/hdfs-clusters/import", consumes = "multipart/form-data")
+  @ResponseStatus(HttpStatus.CREATED)
+  Map<String, Object> importCluster(
+      @RequestParam String id, @RequestParam String name, @RequestPart("file") MultipartFile file)
+      throws java.io.IOException {
+    return bundles.install(id, name, file);
   }
 
   @GetMapping("/hdfs-clusters")
   List<Map<String, Object>> clusters() {
     return db.sql("select * from hdfs_cluster order by name").query().listOfRows();
-  }
-
-  @PostMapping("/hdfs-clusters")
-  @ResponseStatus(HttpStatus.CREATED)
-  void createCluster(@Valid @RequestBody HdfsCluster r) {
-    Instant n = Instant.now();
-    db.sql(
-            "insert into hdfs_cluster(id,name,default_fs,nameservice,kerberos_enabled,principal,keytab_secret_ref,config_resource_refs,status,created_at,updated_at) values(:id,:name,:fs,:ns,:k,:p,:key,:resources,'ENABLED',:n,:n)")
-        .param("id", r.id())
-        .param("name", r.name())
-        .param("fs", r.defaultFs())
-        .param("ns", r.nameservice())
-        .param("k", r.kerberosEnabled())
-        .param("p", r.principal())
-        .param("key", r.keytabSecretRef())
-        .param("resources", r.configResourceRefs())
-        .param("n", n)
-        .update();
   }
 
   @GetMapping("/service-groups")
@@ -66,32 +64,41 @@ class SystemController {
         .listOfRows();
   }
 
+  @PostMapping(value = "/gateway-certificates", produces = "application/zip")
+  ResponseEntity<byte[]> gatewayCertificate(
+      @Valid @RequestBody GatewayCertificateRequest request, Principal principal) throws Exception {
+    var generated =
+        certificates.generate(request.gatewayId(), request.serviceGroupId(), principal.getName());
+    return ResponseEntity.ok()
+        .contentType(org.springframework.http.MediaType.parseMediaType("application/zip"))
+        .header(
+            org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+            "attachment; filename=\"" + request.gatewayId() + "-certificate.zip\"")
+        .header("X-HFG-Certificate-Fingerprint", generated.fingerprint())
+        .header("X-HFG-Certificate-Expires", generated.notAfter().toString())
+        .body(generated.zip());
+  }
+
   @PutMapping("/gateways/{id}/heartbeat")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   void heartbeat(@PathVariable String id, @Valid @RequestBody GatewayHeartbeat r) {
     Instant n = Instant.now();
     db.sql(
-            "insert into gateway_node(id,service_group_id,hostname,role,management_address,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at")
+            "insert into gateway_node(id,service_group_id,hostname,role,management_address,ip_address,ftp_port,sftp_port,management_port,software_version,snapshot_version,last_heartbeat_at,status,created_at,updated_at) values(:id,:g,:h,:role,:addr,:ip,:ftp,:sftp,:management,:version,:snapshot,:n,'UP',:n,:n) on conflict(id) do update set role=excluded.role,management_address=excluded.management_address,ip_address=excluded.ip_address,ftp_port=excluded.ftp_port,sftp_port=excluded.sftp_port,management_port=excluded.management_port,software_version=excluded.software_version,snapshot_version=excluded.snapshot_version,last_heartbeat_at=excluded.last_heartbeat_at,status='UP',updated_at=excluded.updated_at")
         .param("id", id)
         .param("g", r.serviceGroupId())
         .param("h", r.hostname())
         .param("role", r.role())
         .param("addr", r.managementAddress())
+        .param("ip", r.ipAddress())
+        .param("ftp", r.ftpPort())
+        .param("sftp", r.sftpPort())
+        .param("management", r.managementPort())
         .param("version", r.softwareVersion())
         .param("snapshot", r.snapshotVersion())
         .param("n", n)
         .update();
   }
-
-  record HdfsCluster(
-      @NotBlank String id,
-      @NotBlank String name,
-      @NotBlank String defaultFs,
-      String nameservice,
-      boolean kerberosEnabled,
-      String principal,
-      String keytabSecretRef,
-      String configResourceRefs) {}
 
   record ServiceGroup(
       @NotBlank String id,
@@ -99,11 +106,17 @@ class SystemController {
       @NotBlank String vip,
       @NotBlank String hdfsClusterId) {}
 
+  record GatewayCertificateRequest(@NotBlank String gatewayId, @NotBlank String serviceGroupId) {}
+
   record GatewayHeartbeat(
       @NotBlank String serviceGroupId,
       @NotBlank String hostname,
       @NotBlank String role,
       @NotBlank String managementAddress,
+      @NotBlank String ipAddress,
+      @Min(1) @Max(65535) int ftpPort,
+      @Min(1) @Max(65535) int sftpPort,
+      @Min(1) @Max(65535) int managementPort,
       String softwareVersion,
       long snapshotVersion) {}
 }

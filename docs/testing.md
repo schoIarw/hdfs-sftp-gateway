@@ -28,6 +28,7 @@ npm run build
 | 快照 | SHA-256、Ed25519、篡改拒绝 |
 | SFTP | authorized_keys 注释规范化、公钥校验 |
 | API | OpenSSH 公钥格式和 SHA-256 指纹 |
+| HDFS 配置包 | 仅提取 XML/keytab、ZIP Slip 拒绝 |
 | 用户 | 密码哈希与 revision 冲突 |
 | 前端 | 字节格式化、登录凭据生命周期、签名快照版本解析、TypeScript |
 
@@ -84,6 +85,8 @@ npm run build
 - 验证目录穿越、超长路径、控制字符、重复 slash、Unicode 文件名。
 - 验证管理 API 未认证返回 401，mutating API 产生 audit_log，健康和指标端点按网络策略开放。
 - 使用依赖扫描和生成的 `target/bom.json` 做上线前漏洞审查。
+- 使用其他 Gateway 的证书或篡改请求 Gateway ID/服务组，gRPC 心跳、快照订阅和 HDFS 包下载均应拒绝。
+- 上传含 `../`、绝对路径、超出 32 MiB 压缩包或超出 128 MiB 解压内容的 HDFS ZIP，均应拒绝且不得写出目标目录。
 - 生产反向代理验证 HTTPS、HSTS、请求体限制和管理网访问控制。
 - FTP 若启用，仅允许可信 CIDR；公网场景只验收 SFTP。
 

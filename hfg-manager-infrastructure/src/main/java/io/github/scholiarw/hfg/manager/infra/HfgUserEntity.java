@@ -38,9 +38,6 @@ class HfgUserEntity {
   @Column(name = "service_group_id", nullable = false, length = 64)
   String serviceGroupId;
 
-  @Column(name = "hdfs_effective_user", length = 128)
-  String hdfsEffectiveUser;
-
   @Column(name = "expires_at")
   Instant expiresAt;
 

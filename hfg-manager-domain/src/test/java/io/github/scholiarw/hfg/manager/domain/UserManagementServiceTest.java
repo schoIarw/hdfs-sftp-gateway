@@ -26,7 +26,7 @@ class UserManagementServiceTest {
     var user =
         service.create(
             new UserManagementService.CreateUser(
-                "user_01", "secret", "d", "b", null, null, null, "g1", "hdfs-u", null));
+                "user_01", "secret", "d", "b", null, null, null, "g1", null));
     assertEquals("h:secret", user.passwordHash());
     assertThrows(
         IllegalStateException.class,
@@ -34,8 +34,7 @@ class UserManagementServiceTest {
             service.update(
                 user.id(),
                 9,
-                new UserManagementService.UpdateUser(
-                    "d", "b", null, null, null, "g1", "hdfs-u", null)));
+                new UserManagementService.UpdateUser("d", "b", null, null, null, "g1", null)));
   }
 
   static final class MemoryRepo implements UserRepository {

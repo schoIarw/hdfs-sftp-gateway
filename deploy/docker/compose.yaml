@@ -25,5 +25,6 @@ services:
       HFG_RPC_ENABLED: "false"
       HFG_PROMETHEUS_URL: http://prometheus:9090
     depends_on: {postgres: {condition: service_healthy}}
+    volumes: ["hfg-manager-data:/var/lib/hfg"]
     ports: ["8080:8080"]
-volumes: {hfg-postgres: {}}
+volumes: {hfg-postgres: {}, hfg-manager-data: {}}

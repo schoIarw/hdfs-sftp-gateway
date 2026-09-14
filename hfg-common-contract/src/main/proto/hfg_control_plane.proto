@@ -7,6 +7,7 @@ option java_outer_classname = "HfgControlPlaneProto";
 service HfgControlPlane {
   rpc SubscribeSnapshots(SubscribeSnapshotsRequest) returns (stream SnapshotEnvelope);
   rpc Heartbeat(GatewayHeartbeat) returns (HeartbeatAck);
+  rpc GetHdfsBundle(HdfsBundleRequest) returns (HdfsBundleResponse);
 }
 
 message SubscribeSnapshotsRequest {
@@ -29,9 +30,23 @@ message GatewayHeartbeat {
   string management_address = 5;
   string software_version = 6;
   int64 snapshot_version = 7;
+  string ip_address = 8;
+  int32 ftp_port = 9;
+  int32 sftp_port = 10;
+  int32 management_port = 11;
 }
 
 message HeartbeatAck {
   int64 server_epoch_millis = 1;
   int64 latest_snapshot_version = 2;
+}
+
+message HdfsBundleRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+}
+
+message HdfsBundleResponse {
+  bytes zip = 1;
+  string sha256 = 2;
 }

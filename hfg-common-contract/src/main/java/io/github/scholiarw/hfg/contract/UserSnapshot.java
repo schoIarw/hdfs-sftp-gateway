@@ -14,7 +14,6 @@ public record UserSnapshot(
     String department,
     String businessDomain,
     String serviceGroupId,
-    String hdfsEffectiveUser,
     AccountStatus status,
     Instant expiresAt,
     List<DirectoryGrant> directories,

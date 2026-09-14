@@ -129,7 +129,7 @@ public final class TransferService {
   }
 
   private StorageClient storage(TransferContext context) throws IOException {
-    return storageFactory.forEffectiveUser(context.user().hdfsEffectiveUser());
+    return storageFactory.forEffectiveUser(null);
   }
 
   static String parent(String path) {

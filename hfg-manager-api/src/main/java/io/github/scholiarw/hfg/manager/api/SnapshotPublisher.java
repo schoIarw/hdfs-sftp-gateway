@@ -163,7 +163,6 @@ class SnapshotPublisher {
         row.department(),
         row.businessDomain(),
         row.serviceGroupId(),
-        row.hdfsEffectiveUser(),
         row.status(),
         row.expiresAt(),
         grants,
@@ -179,7 +178,6 @@ class SnapshotPublisher {
         rs.getString("department"),
         rs.getString("business_domain"),
         rs.getString("service_group_id"),
-        rs.getString("hdfs_effective_user"),
         AccountStatus.valueOf(rs.getString("status")),
         expiresAt == null ? null : expiresAt.toInstant());
   }
@@ -196,7 +194,6 @@ class SnapshotPublisher {
       String department,
       String businessDomain,
       String serviceGroupId,
-      String hdfsEffectiveUser,
       AccountStatus status,
       Instant expiresAt) {}
 }

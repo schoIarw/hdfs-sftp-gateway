@@ -22,7 +22,10 @@ class DirectoryController {
 
   @GetMapping
   List<Map<String, Object>> list() {
-    return db.sql("select * from directory_mapping order by name").query().listOfRows();
+    return db.sql(
+            "select d.*,coalesce(string_agg(u.username||':'||g.access_mode,',' order by u.username),'') as user_bindings from directory_mapping d left join directory_grant g on g.directory_mapping_id=d.id left join ftp_user u on u.id=g.user_id group by d.id order by d.name")
+        .query()
+        .listOfRows();
   }
 
   @PostMapping
@@ -42,6 +45,14 @@ class DirectoryController {
         .param("nq", r.namespaceQuota())
         .param("sq", r.spaceQuotaBytes())
         .param("ps", r.autoCreate() ? "PENDING" : "MANUAL")
+        .param("now", now)
+        .update();
+    db.sql(
+            "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:grant,:user,:directory,:mode,:now)")
+        .param("grant", UUID.randomUUID())
+        .param("user", r.userId())
+        .param("directory", id)
+        .param("mode", r.accessMode())
         .param("now", now)
         .update();
     if (r.autoCreate())
@@ -85,5 +96,7 @@ class DirectoryController {
       @NotBlank String hdfsClusterId,
       boolean autoCreate,
       @Min(-1) long namespaceQuota,
-      @Min(-1) long spaceQuotaBytes) {}
+      @Min(-1) long spaceQuotaBytes,
+      @NotNull UUID userId,
+      @NotBlank @Pattern(regexp = "READ_ONLY|READ_WRITE") String accessMode) {}
 }

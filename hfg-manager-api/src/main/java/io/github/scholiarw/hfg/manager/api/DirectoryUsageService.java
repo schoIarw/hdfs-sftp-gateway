@@ -23,7 +23,7 @@ class DirectoryUsageService {
   List<Map<String, Object>> forUser(UUID userId) {
     return db
         .sql(
-            "select d.name,d.virtual_path,d.hdfs_path,d.namespace_quota,d.space_quota_bytes,u.hdfs_effective_user,h.default_fs,h.kerberos_enabled,h.principal,h.keytab_secret_ref,h.config_resource_refs from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id join ftp_user u on u.id=g.user_id join hdfs_cluster h on h.id=d.hdfs_cluster_id where g.user_id=:u and d.status='ENABLED' order by d.virtual_path")
+            "select d.name,d.virtual_path,d.hdfs_path,d.namespace_quota,d.space_quota_bytes,h.default_fs,h.kerberos_enabled,h.principal,h.keytab_secret_ref,h.config_resource_refs from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id join hdfs_cluster h on h.id=d.hdfs_cluster_id where g.user_id=:u and d.status='ENABLED' order by d.virtual_path")
         .param("u", userId)
         .query()
         .listOfRows()
@@ -49,7 +49,7 @@ class DirectoryUsageService {
                   kerberos ? (String) row.get("principal") : null,
                   keytab((String) row.get("keytab_secret_ref")),
                   true));
-      try (var storage = factory.forEffectiveUser((String) row.get("hdfs_effective_user"))) {
+      try (var storage = factory.forEffectiveUser(null)) {
         QuotaUsage usage = storage.quota((String) row.get("hdfs_path"));
         result.put("namespaceQuota", usage.namespaceQuota());
         result.put("namespaceUsed", usage.namespaceConsumed());

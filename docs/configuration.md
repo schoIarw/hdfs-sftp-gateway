@@ -16,10 +16,8 @@ java -jar /opt/hfg/hfg-manager.jar \
 | HFG_GATEWAY_ID | 全局唯一节点 ID | hfg-gateway-a01 |
 | HFG_SERVICE_GROUP_ID | 固定服务组 | group-a |
 | HFG_SNAPSHOT_PUBLIC_KEY_BASE64 | Ed25519 X.509 公钥 Base64 | Secret 注入 |
-| HFG_HDFS_DEFAULT_FS | HDFS URI/HA nameservice | hdfs://nameservice1 |
-| HFG_HDFS_RESOURCES | core-site/hdfs-site，逗号分隔 | /etc/hadoop/core-site.xml,/etc/hadoop/hdfs-site.xml |
-| HFG_KERBEROS_PRINCIPAL | 服务 Principal | hfg/host@REALM |
-| HFG_KERBEROS_KEYTAB | keytab 路径 | /etc/hfg/hfg.keytab |
+| HFG_HDFS_RUNTIME_PATH | 管理端下发的 HDFS 配置落盘目录 | /var/lib/hfg/hdfs-runtime |
+| HFG_HDFS_REFRESH_INTERVAL | HDFS 配置包同步周期 | PT1M |
 | HFG_RPC_HOST | Manager gRPC/VIP | hfg-manager.internal |
 | HFG_MANAGER_URL | Manager HTTPS 基址，用于事件与配额 | https://hfg-manager.internal |
 | HFG_MANAGER_USERNAME / HFG_MANAGER_PASSWORD | Gateway 服务账号 | Secret 注入 |
@@ -30,6 +28,7 @@ java -jar /opt/hfg/hfg-manager.jar \
 | HFG_SFTP_HOST_KEY | 持久化 SSH 主机密钥 | /etc/hfg/ssh_host_ed25519_key |
 | HFG_VIP | FTP PASV 返回地址 | 10.0.10.20 |
 | HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | readiness/metrics 监听 | 127.0.0.1 / 18080 |
+| HFG_NODE_IP | 心跳上报的节点服务 IP | 10.0.10.11 |
 
 生产使用 gRPC mTLS 分发快照，同时仍通过 Manager HTTPS REST 上报事件和申请精确配额。只有不使用周期配额且允许不汇总业务事件的隔离测试环境才可以省略 HFG_MANAGER_URL。本地开发可把 `HFG_RPC_ENABLED` 设为 false，此时同一 REST 基址还承担快照轮询。
 
@@ -51,10 +50,15 @@ java -jar /opt/hfg/hfg-manager.jar \
 | HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员 |
 | HFG_SNAPSHOT_PRIVATE_KEY_BASE64 | Ed25519 PKCS#8 私钥 Base64 |
 | HFG_RPC_SERVER_CERT / HFG_RPC_SERVER_KEY / HFG_RPC_CA | gRPC 双向 TLS |
+| HFG_RPC_CA_KEY | 签发 Gateway 客户端证书的 CA PKCS#8 私钥 |
+| HFG_GATEWAY_CERT_VALIDITY_DAYS | Gateway 证书有效天数，默认 365 |
+| HFG_HDFS_BUNDLE_PATH | HDFS ZIP 与安全解压内容保存目录 |
 | HFG_PROMETHEUS_URL | 固定 Prometheus 服务地址 |
 | HFG_MANAGER_PORT | Manager 页面与 REST API 端口，默认 8080 |
 
-HDFS 集群记录中的 `keytab_secret_ref` 只接受 `file:` URI，防止 Manager 任意解析外部 Secret。生产部署由 Secret 管理系统把 keytab 挂载到该文件路径。当前版本 Gateway 上报事件及申请精确配额使用 Manager 的 Basic 账号，因此 `HFG_MANAGER_USERNAME`/`HFG_MANAGER_PASSWORD` 应配置为 Manager 管理账号；部署时必须限制 Manager 管理网访问并使用 TLS。
+HDFS 接入只接受最大 32 MiB 的 ZIP，包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、限制解压后总体积、忽略其他文件，从 keytab 自动读取 principal，并保存 SHA-256。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
+
+Gateway 不配置 HDFS URI、XML、principal 或 keytab。它通过 Manager mTLS gRPC 控制通道按服务组取得配置包，落盘到 `HFG_HDFS_RUNTIME_PATH` 后热更新 HDFS 客户端。客户端证书 CN、请求中的 Gateway ID 和证书登记的服务组必须一致，无需为 HDFS 包分发配置额外账号。Manager REST 仍须置于 HTTPS 反向代理和管理网访问控制之后。
 
 ## Ed25519 快照密钥
 

@@ -42,7 +42,6 @@ class LocalTransferLimiterTest {
             null,
             null,
             "group",
-            "hdfs-user",
             AccountStatus.ENABLED,
             null,
             List.of(),

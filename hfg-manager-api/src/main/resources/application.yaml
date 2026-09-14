@@ -13,6 +13,9 @@ spring:
     hibernate.ddl-auto: validate
   flyway:
     enabled: true
+  servlet.multipart:
+    max-file-size: 32MB
+    max-request-size: 34MB
 server:
   port: ${HFG_MANAGER_PORT:8080}
   shutdown: graceful
@@ -29,9 +32,13 @@ hfg:
     signing-private-key-base64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:}
   prometheus:
     base-url: ${HFG_PROMETHEUS_URL:http://127.0.0.1:9090}
+  hdfs-bundles:
+    path: ${HFG_HDFS_BUNDLE_PATH:/var/lib/hfg/hdfs-bundles}
   rpc:
     enabled: ${HFG_RPC_ENABLED:true}
     port: ${HFG_RPC_PORT:19090}
     server-certificate: ${HFG_RPC_SERVER_CERT:/etc/hfg/pki/manager.crt}
     server-private-key: ${HFG_RPC_SERVER_KEY:/etc/hfg/pki/manager.key}
     ca-certificate: ${HFG_RPC_CA:/etc/hfg/pki/ca.crt}
+    ca-private-key: ${HFG_RPC_CA_KEY:/etc/hfg/pki/ca.key}
+    gateway-certificate-validity-days: ${HFG_GATEWAY_CERT_VALIDITY_DAYS:365}

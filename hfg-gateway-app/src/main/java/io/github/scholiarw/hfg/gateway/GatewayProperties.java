@@ -35,15 +35,12 @@ public record GatewayProperties(
       String hostname,
       String role,
       String managementAddress,
+      String advertisedAddress,
+      int managementPort,
       String softwareVersion,
       Duration heartbeatInterval) {}
 
-  public record Hdfs(
-      String defaultFs,
-      List<String> configurationResources,
-      String kerberosPrincipal,
-      String keytabPath,
-      boolean proxyUsers) {}
+  public record Hdfs(Path runtimePath, Duration refreshInterval) {}
 
   public record Ftp(
       boolean enabled,

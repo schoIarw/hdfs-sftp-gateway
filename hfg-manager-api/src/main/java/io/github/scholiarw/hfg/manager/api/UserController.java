@@ -50,7 +50,6 @@ class UserController {
                 r.email(),
                 r.note(),
                 r.serviceGroupId(),
-                r.hdfsEffectiveUser(),
                 r.expiresAt())));
   }
 
@@ -70,7 +69,6 @@ class UserController {
                 r.email(),
                 r.note(),
                 r.serviceGroupId(),
-                r.hdfsEffectiveUser(),
                 r.expiresAt())));
   }
 
@@ -106,7 +104,6 @@ class UserController {
       @Email @Size(max = 255) String email,
       @Size(max = 1024) String note,
       @NotBlank String serviceGroupId,
-      String hdfsEffectiveUser,
       Instant expiresAt) {}
 
   record UpdateRequest(
@@ -116,7 +113,6 @@ class UserController {
       @Email @Size(max = 255) String email,
       @Size(max = 1024) String note,
       @NotBlank String serviceGroupId,
-      String hdfsEffectiveUser,
       Instant expiresAt) {}
 
   record StatusRequest(@NotNull AccountStatus status) {}
@@ -135,7 +131,6 @@ class UserController {
       String note,
       AccountStatus status,
       String serviceGroupId,
-      String hdfsEffectiveUser,
       Instant expiresAt,
       Instant createdAt,
       Instant updatedAt,
@@ -151,7 +146,6 @@ class UserController {
           u.note(),
           u.status(),
           u.serviceGroupId(),
-          u.hdfsEffectiveUser(),
           u.expiresAt(),
           u.createdAt(),
           u.updatedAt(),

@@ -51,7 +51,7 @@ flowchart TB
 3. 规范化客户端虚拟路径，拒绝 `..` 越界。
 4. 按最长虚拟目录前缀找到 HDFS 路径映射。
 5. 按 READ_ONLY 或 READ_WRITE 校验操作。
-6. 使用账号的 `hdfs_effective_user` 建立 UGI doAs FileSystem。
+6. 使用管理端下发配置包中的 keytab principal 建立 UGI；不再把 FTP/SFTP 用户映射为 HDFS proxy user。
 
 已发布快照包含密码哈希而非明文。网关只接受 SHA-256 和 Ed25519 都正确、服务组一致且版本递增的快照。Manager 不可用时继续使用磁盘上最后一个有效快照。
 
@@ -79,12 +79,12 @@ flowchart TB
 ## 5. 管理功能
 
 - 用户：分页查询、创建、修改、启停、删除、重置密码、OpenSSH 公钥管理；上述操作均已接入管理页面。
-- 目录：虚拟目录/HDFS 路径映射、自动创建、namespace/space 配额、失败状态与重试。
+- 目录：创建时绑定用户并设置只读/读写权限，同时维护虚拟目录/HDFS 路径映射、自动创建、namespace/space 配额、失败状态与重试。
 - 权限：用户可见目录及只读/读写授权。
 - 流控：字节速率、突发量、连接/传输并发、周期文件数和字节数。
 - 看板：今日汇总、24 小时趋势、用户历史、连接历史、流控窗口。
 - 监控告警：Prometheus instant/range query 代理、规则和通知渠道配置。
-- 系统：HDFS/Kerberos、服务组、VIP 和 Gateway 心跳状态。
+- 系统：上传并解析 HDFS XML/Keytab ZIP、服务组、VIP、Gateway 客户端证书，以及包含 IP/端口的节点心跳状态。
 - 配置发布：管理页面按服务组查看并发布版本化 Ed25519 签名快照，经 gRPC 推送到主备 Gateway。
 - 审计：所有管理 REST 的 POST、PUT、DELETE 记录操作者、路径、状态、来源和关联 ID，不记录请求体或密钥。
 
@@ -100,9 +100,9 @@ flowchart TB
 ## 7. 安全边界
 
 - 生产优先 SFTP；明文 FTP 只能位于可信网络，默认关闭主动模式并固定被动端口范围。
-- Manager gRPC 默认要求双向 TLS；证书 SAN 必须匹配 `HFG_RPC_SERVER_NAME`。
+- Manager gRPC 默认要求双向 TLS；证书 SAN 必须匹配 `HFG_RPC_SERVER_NAME`。Gateway 客户端证书由 Manager 使用 Java 密码学 API 和配置的 CA 签发并下载，私钥只在生成响应中出现一次。
 - SFTP 主机密钥必须持久化并在主备节点保持一致。
-- Kerberos keytab、数据库密码、管理密码和 TLS 私钥只通过文件挂载或 Secret 注入，禁止写入仓库。
+- HDFS ZIP 和解压后的 keytab 仅保存在 Manager 受控数据目录，并通过 mTLS gRPC 控制通道下发到 Gateway；证书 CN、请求 Gateway ID 与登记服务组进行绑定校验。数据库密码、管理密码、CA 私钥和 TLS 私钥禁止写入仓库。
 - 管理 REST 当前采用 HTTP Basic，生产必须位于 HTTPS 反向代理后；可在不改变领域层的情况下替换为企业 OIDC。
 - SFTP 禁用 shell、exec、软链接和属性写入，只暴露 SFTP 子系统。
 

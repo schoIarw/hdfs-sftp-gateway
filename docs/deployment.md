@@ -42,7 +42,7 @@ unzip -l hfg-manager-api/target/hfg-manager-api-*.jar \
 
 - 所有 Manager/Gateway 主机安装 Java 17 JRE；
 - PostgreSQL 17（开发可单实例，生产建议高可用）；
-- 可访问 HDFS NameNode/DataNode，Kerberos 环境需准备 `core-site.xml`、`hdfs-site.xml`、principal 和 keytab；
+- 可访问 HDFS NameNode/DataNode；管理员需准备包含 Hadoop XML 与 keytab 的 ZIP 配置包；
 - Gateway 主备节点安装 Keepalived、curl、iproute2；
 - 网络放通 21、22、FTP PASV 端口段、8080、19090，以及 HDFS 所需端口。
 
@@ -88,7 +88,7 @@ sudo install -o root -g hfg -m 0640 deploy/env/hfg-manager.env.example /etc/hfg/
 sudoedit /etc/hfg/hfg-manager.env
 ```
 
-如启用生产 gRPC（默认 19090），还需将 Manager 服务端证书、私钥和 CA 放到 `/etc/hfg/pki`，并保持环境文件中的路径一致。首次验证可先设置 `HFG_RPC_ENABLED=false`。
+如启用生产 gRPC（默认 19090），还需将 Manager 服务端证书、私钥、CA 证书及 CA PKCS#8 私钥放到 `/etc/hfg/pki`，并保持环境文件中的路径一致。CA 私钥只用于 Java 内部签发 Gateway 客户端证书。首次验证可先设置 `HFG_RPC_ENABLED=false`。
 
 前台试运行便于查看错误：
 
@@ -117,7 +117,9 @@ sudo install -o root -g hfg -m 0640 deploy/env/hfg-gateway.env.example /etc/hfg/
 sudoedit /etc/hfg/hfg-gateway.env
 ```
 
-同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、`HFG_VIP`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID` 与 Kerberos principal 应按节点设置。把 Hadoop XML、keytab、mTLS 文件和持久化 SSH host key 放到配置指定位置，权限只授予 `hfg` 运行用户。当前版本中 Gateway 调用 Manager REST 时使用 Manager Basic 账号，因此 `HFG_MANAGER_USERNAME` 应与 `HFG_ADMIN_USERNAME` 一致，密码也应一致。
+先在管理页面“系统管理”上传 HDFS ZIP；Manager 会自动读取 keytab principal 和 XML。然后按 Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.key` 和 `ca.crt` 安装到 Gateway 的 `/etc/hfg/pki`。整个签发过程由 Java 完成，不调用 openssl。
+
+同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、`HFG_VIP`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID`、`HFG_NODE_IP` 和客户端证书应按节点设置。Gateway 不再配置 Hadoop XML、keytab、principal 或 HDFS 用户；启动后凭客户端证书从 Manager mTLS gRPC 控制通道下载对应服务组的 HDFS 包并写入 `/var/lib/hfg/hdfs-runtime`。证书 CN、`HFG_GATEWAY_ID` 及生成证书时选择的服务组必须一致。
 
 直接前台运行：
 
@@ -172,7 +174,7 @@ sftp -P 22 <ftp-user>@<VIP>
 - Docker Engine 24+ 与 Compose v2；
 - 至少 4 GiB 可用内存；
 - 可拉取基础镜像并可访问 HDFS；
-- 生产 Secret、证书、keytab 和 Hadoop XML 均通过只读 volume 或 Secret 挂载。
+- 生产 Secret 和 Gateway 证书通过只读 volume 或 Secret 挂载；HDFS XML/keytab 由 Manager 配置包同步到可写数据卷。
 
 ### 2. 启动 Manager 演示栈
 
@@ -203,11 +205,10 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  -v /etc/hadoop:/etc/hadoop:ro \
   hfg-gateway:0.1.0
 ```
 
-镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，配置、keytab、证书和 SSH host key 必须允许 UID 10001 读取。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。
+镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。
 
 每个主备节点分别运行一个 Gateway 容器，配置原则与 Native 模式相同。Keepalived 建议仍运行在宿主机，并通过本机 `18080` readiness 与 21/22 监听状态决定是否持有 VIP。
 
