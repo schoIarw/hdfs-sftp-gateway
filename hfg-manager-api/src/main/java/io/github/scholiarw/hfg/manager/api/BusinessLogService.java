@@ -15,8 +15,7 @@ final class BusinessLogService {
   private final DatabaseDialect managementDialect;
   private final LogsStore logs;
 
-  BusinessLogService(
-      JdbcClient management, DatabaseDialect managementDialect, LogsStore logs) {
+  BusinessLogService(JdbcClient management, DatabaseDialect managementDialect, LogsStore logs) {
     this.management = management;
     this.managementDialect = managementDialect;
     this.logs = logs;
