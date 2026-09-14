@@ -50,7 +50,7 @@ class DirectoryController {
         .param("nq", r.namespaceQuota())
         .param("sq", r.spaceQuotaBytes())
         .param("ps", r.autoCreate() ? "PENDING" : "MANUAL")
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
     db.sql(
             "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:grant,:user,:directory,:mode,:now)")
@@ -58,7 +58,7 @@ class DirectoryController {
         .param("user", r.userId())
         .param("directory", id)
         .param("mode", r.accessMode())
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
     if (r.autoCreate())
       org.springframework.transaction.support.TransactionSynchronizationManager

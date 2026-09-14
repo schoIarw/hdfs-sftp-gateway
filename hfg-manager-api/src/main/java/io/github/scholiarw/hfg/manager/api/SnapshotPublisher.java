@@ -87,7 +87,7 @@ class SnapshotPublisher {
           .param("h", hash)
           .param("s", signature)
           .param("a", actor)
-          .param("now", Instant.now())
+          .param("now", java.sql.Timestamp.from(Instant.now()))
           .update();
       return new SignedSnapshotEnvelope(payload, hash, signature);
     } catch (Exception exception) {

@@ -35,7 +35,7 @@ class BusinessLogsIntegrationTest {
                 + "values(:id,:name,'hdfs://test',false,'ENABLED',:now,:now)")
         .param("id", cluster)
         .param("name", cluster)
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
     management
         .sql(
@@ -45,7 +45,7 @@ class BusinessLogsIntegrationTest {
         .param("name", group)
         .param("vip", "127.0.0." + (Math.abs(suffix.hashCode()) % 200 + 1))
         .param("cluster", cluster)
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
     management
         .sql(
@@ -54,14 +54,14 @@ class BusinessLogsIntegrationTest {
         .param("id", databaseId(user))
         .param("username", "user-" + suffix)
         .param("group", group)
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
     management
         .sql(
             "insert into traffic_policy(user_id,period,time_zone,updated_at) "
                 + "values(:id,'DAY','UTC',:now)")
         .param("id", databaseId(user))
-        .param("now", now)
+        .param("now", java.sql.Timestamp.from(now))
         .update();
 
     UUID transfer = UUID.randomUUID();

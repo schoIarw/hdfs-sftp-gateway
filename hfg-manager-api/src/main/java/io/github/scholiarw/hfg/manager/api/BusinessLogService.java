@@ -116,7 +116,7 @@ final class BusinessLogService {
                     + "where w.user_id=:user and w.direction=:direction and w.window_start=:start")
             .param("user", userId)
             .param("direction", direction.name())
-            .param("start", start)
+            .param("start", java.sql.Timestamp.from(start))
             .query()
             .singleRow();
     long fileLimit = number(row.get("file_limit")), byteLimit = number(row.get("byte_limit"));

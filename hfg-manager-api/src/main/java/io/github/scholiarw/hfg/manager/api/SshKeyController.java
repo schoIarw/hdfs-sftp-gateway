@@ -51,7 +51,7 @@ class SshKeyController {
         .param("f", fingerprint)
         .param("k", normalized)
         .param("note", request.note())
-        .param("now", Instant.now())
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
     return db.sql(
             "select id,fingerprint,note,created_at from ssh_public_key where id=:id and user_id=:u")

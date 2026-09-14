@@ -43,7 +43,7 @@ class PermissionController {
         .param("u", userId)
         .param("d", directoryId)
         .param("a", r.accessMode().name())
-        .param("now", Instant.now())
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
   }
 

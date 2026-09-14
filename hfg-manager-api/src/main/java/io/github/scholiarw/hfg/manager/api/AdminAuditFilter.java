@@ -64,7 +64,7 @@ class AdminAuditFilter extends OncePerRequestFilter {
           .param("resource", resourceId)
           .param("correlation", correlationId)
           .param("source", request.getRemoteAddr())
-          .param("now", Instant.now())
+          .param("now", java.sql.Timestamp.from(Instant.now()))
           .update();
     } catch (RuntimeException ignored) {
       // Audit persistence must not replace the original API result. Database failures remain

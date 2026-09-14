@@ -41,7 +41,7 @@ class DashboardController {
         management
             .sql(
                 "select count(*) from gateway_node where status='UP' and last_heartbeat_at>:cutoff")
-            .param("cutoff", Instant.now().minusSeconds(30))
+            .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(30)))
             .query(Long.class)
             .single());
     Map<String, Long> bytes = new HashMap<>();
@@ -102,8 +102,8 @@ class DashboardController {
         .param("user", userId)
         .param("fromDay", utcDate(from))
         .param("toDay", utcDate(to))
-        .param("from", from)
-        .param("to", to)
+        .param("from", java.sql.Timestamp.from(from))
+        .param("to", java.sql.Timestamp.from(to))
         .query()
         .listOfRows();
   }
@@ -126,7 +126,7 @@ class DashboardController {
                 "select direction,sum(case when status='STARTED' then 1 else 0 end) connections,"
                     + "coalesce(sum(case when status='COMPLETED' and ended_at>=:cutoff then file_size_bytes else 0 end),0) bytes "
                     + "from logs where record_type='TRANSFER' and user_id=:user and log_date>=:day group by direction")
-            .param("cutoff", Instant.now().minusSeconds(60))
+            .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
             .param("user", userId)
             .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
             .query()
@@ -178,7 +178,7 @@ class DashboardController {
                 .param("user", policy.get("user_id"))
                 .param("direction", direction)
                 .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
-                .param("cutoff", Instant.now().minusSeconds(60))
+                .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
                 .query(Long.class)
                 .single();
         row.put("recent_bytes_per_second", currentRate);
@@ -207,8 +207,8 @@ class DashboardController {
                 + "and window_start<:to and window_end>:from) q where rn=1 order by window_start desc,username,direction")
         .param("fromDay", utcDate(from).minusDays(1))
         .param("toDay", utcDate(to).plusDays(1))
-        .param("from", from)
-        .param("to", to)
+        .param("from", java.sql.Timestamp.from(from))
+        .param("to", java.sql.Timestamp.from(to))
         .query()
         .listOfRows();
   }
@@ -228,8 +228,8 @@ class DashboardController {
                     + " group by 1,2 order by 1")
             .param("fromDay", utcDate(from))
             .param("toDay", utcDate(to))
-            .param("from", from)
-            .param("to", to);
+            .param("from", java.sql.Timestamp.from(from))
+            .param("to", java.sql.Timestamp.from(to));
     if (userId != null) statement = statement.param("user", userId);
     return statement.query().listOfRows();
   }

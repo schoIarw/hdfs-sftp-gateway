@@ -68,7 +68,7 @@ class TrafficPolicyController {
         .param("uby", r.periodUploadBytes)
         .param("dby", r.periodDownloadBytes)
         .param("tz", r.timeZone)
-        .param("now", Instant.now())
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
   }
 

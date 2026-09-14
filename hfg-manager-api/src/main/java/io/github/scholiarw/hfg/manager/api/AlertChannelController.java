@@ -37,7 +37,7 @@ class AlertChannelController {
         .param("type", r.channelType())
         .param("secret", r.configSecretRef())
         .param("enabled", r.enabled())
-        .param("n", n)
+        .param("n", java.sql.Timestamp.from(n))
         .update();
     return db.sql(
             "select id,name,channel_type,config_secret_ref,enabled,created_at,updated_at from alert_channel where id=:id")

@@ -86,7 +86,7 @@ class HdfsBundleService {
                   .collect(java.util.stream.Collectors.joining(",")))
           .param("bundle", savedBundle.toString())
           .param("sha", sha)
-          .param("now", now)
+          .param("now", java.sql.Timestamp.from(now))
           .update();
       return db.sql("select * from hdfs_cluster where id=:id").param("id", id).query().singleRow();
     } catch (IOException | RuntimeException e) {

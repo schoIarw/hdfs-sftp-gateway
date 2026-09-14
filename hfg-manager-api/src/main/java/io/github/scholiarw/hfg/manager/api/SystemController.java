@@ -58,7 +58,7 @@ class SystemController {
         .param("name", r.name())
         .param("vip", r.vip())
         .param("hdfs", r.hdfsClusterId())
-        .param("n", n)
+        .param("n", java.sql.Timestamp.from(n))
         .update();
   }
 
@@ -103,7 +103,7 @@ class SystemController {
         .param("management", r.managementPort())
         .param("version", r.softwareVersion())
         .param("snapshot", r.snapshotVersion())
-        .param("n", n)
+        .param("n", java.sql.Timestamp.from(n))
         .update();
   }
 

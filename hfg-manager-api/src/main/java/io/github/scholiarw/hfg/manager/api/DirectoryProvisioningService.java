@@ -61,14 +61,14 @@ class DirectoryProvisioningService {
       }
       db.sql(
               "update directory_mapping set provisioning_status='READY',provisioning_error=null,provisioned_at=:n,updated_at=:n where id=:id")
-          .param("n", Instant.now())
+          .param("n", java.sql.Timestamp.from(Instant.now()))
           .param("id", id)
           .update();
     } catch (Exception e) {
       db.sql(
               "update directory_mapping set provisioning_status='FAILED',provisioning_error=:e,updated_at=:n where id=:id")
           .param("e", truncate(e.getMessage()))
-          .param("n", Instant.now())
+          .param("n", java.sql.Timestamp.from(Instant.now()))
           .param("id", id)
           .update();
       throw new IllegalStateException("Cannot provision HDFS directory " + id, e);

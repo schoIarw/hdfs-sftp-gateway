@@ -100,10 +100,10 @@ class GatewayCertificateService {
         .param("group", serviceGroupId)
         .param("serial", serial.toString(16))
         .param("fingerprint", fingerprint)
-        .param("from", from)
+        .param("from", java.sql.Timestamp.from(from))
         .param("until", until)
         .param("actor", actor)
-        .param("now", Instant.now())
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
     return new Generated(
         zip(gatewayId, certificate, pair.getPrivate(), pem("CERTIFICATE", ca.getEncoded())),

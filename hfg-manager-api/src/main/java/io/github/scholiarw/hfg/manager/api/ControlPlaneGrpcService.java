@@ -67,7 +67,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
         .param("management", r.getManagementPort())
         .param("version", r.getSoftwareVersion())
         .param("snapshot", r.getSnapshotVersion())
-        .param("n", n)
+        .param("n", java.sql.Timestamp.from(n))
         .update();
     long latest =
         db.sql(
@@ -134,7 +134,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
                     .param("gateway", gatewayId)
                     .param("group", serviceGroupId)
                     .param("fingerprint", fingerprint)
-                    .param("now", Instant.now())
+                    .param("now", java.sql.Timestamp.from(Instant.now()))
                     .query(Long.class)
                     .single()
                 > 0;

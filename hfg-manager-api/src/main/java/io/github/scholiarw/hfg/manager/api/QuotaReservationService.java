@@ -42,8 +42,8 @@ class QuotaReservationService {
                 "insert ignore into usage_window(user_id,direction,window_start,window_end) values(:u,:d,:s,:e)"))
         .param("u", userId)
         .param("d", direction.name())
-        .param("s", window.startInclusive())
-        .param("e", window.endExclusive())
+        .param("s", java.sql.Timestamp.from(window.startInclusive()))
+        .param("e", java.sql.Timestamp.from(window.endExclusive()))
         .update();
 
     Map<String, Object> usage =
@@ -51,7 +51,7 @@ class QuotaReservationService {
                 "select * from usage_window where user_id=:u and direction=:d and window_start=:s for update")
             .param("u", userId)
             .param("d", direction.name())
-            .param("s", window.startInclusive())
+            .param("s", java.sql.Timestamp.from(window.startInclusive()))
             .query()
             .singleRow();
     long fileLimit =
@@ -81,7 +81,7 @@ class QuotaReservationService {
         .param("b", bytes)
         .param("u", userId)
         .param("d", direction.name())
-        .param("s", window.startInclusive())
+        .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .update();
     db.sql(
             "insert into quota_reservation(id,user_id,direction,window_start,reserved_files,reserved_bytes,"
@@ -89,11 +89,11 @@ class QuotaReservationService {
         .param("id", id)
         .param("u", userId)
         .param("d", direction.name())
-        .param("s", window.startInclusive())
+        .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .param("f", files)
         .param("b", bytes)
-        .param("expires", Instant.now().plus(Duration.ofMinutes(15)))
-        .param("now", Instant.now())
+        .param("expires", java.sql.Timestamp.from(Instant.now().plus(Duration.ofMinutes(15))))
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
     logs.recordQuotaAfterCommit(userId, direction, window.startInclusive(), "RESERVED");
     return new Reservation(id, files, bytes);
@@ -107,7 +107,7 @@ class QuotaReservationService {
   @Transactional
   void renew(UUID id) {
     db.sql("update quota_reservation set expires_at=:expires where id=:id and status='ACTIVE'")
-        .param("expires", Instant.now().plus(Duration.ofMinutes(15)))
+        .param("expires", java.sql.Timestamp.from(Instant.now().plus(Duration.ofMinutes(15))))
         .param("id", id)
         .update();
   }
@@ -119,7 +119,7 @@ class QuotaReservationService {
         db
             .sql(
                 "select id from quota_reservation where status='ACTIVE' and expires_at<:n limit 100 for update skip locked")
-            .param("n", Instant.now())
+            .param("n", java.sql.Timestamp.from(Instant.now()))
             .query(String.class)
             .list()
             .stream()
@@ -154,7 +154,7 @@ class QuotaReservationService {
         .update();
     db.sql("update quota_reservation set status=:status,committed_at=:now where id=:id")
         .param("status", finalStatus)
-        .param("now", Instant.now())
+        .param("now", java.sql.Timestamp.from(Instant.now()))
         .param("id", id)
         .update();
     logs.recordQuotaAfterCommit(

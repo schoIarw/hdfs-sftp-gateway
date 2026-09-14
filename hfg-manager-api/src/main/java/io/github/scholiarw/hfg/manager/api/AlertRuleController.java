@@ -37,7 +37,7 @@ class AlertRuleController {
         .param("labels", r.labelsJson() == null ? "{}" : r.labelsJson())
         .param("annotations", r.annotationsJson() == null ? "{}" : r.annotationsJson())
         .param("enabled", r.enabled())
-        .param("n", n)
+        .param("n", java.sql.Timestamp.from(n))
         .update();
     return db.sql("select * from alert_rule where id=:id").param("id", id).query().singleRow();
   }
