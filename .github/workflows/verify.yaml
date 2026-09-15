@@ -85,7 +85,7 @@ jobs:
       - name: Verify JDK 17 Ed25519 in CentOS 7 userspace
         run: |
           mkdir -p "${RUNNER_TEMP}/hfg-centos7-keys"
-          docker run --rm \
+          docker run --rm --user "$(id -u):$(id -g)" \
             -v "${JAVA_HOME}:/opt/java:ro" \
             -v "${GITHUB_WORKSPACE}:/workspace:ro" \
             -v "${RUNNER_TEMP}/hfg-centos7-keys:/keys" \
