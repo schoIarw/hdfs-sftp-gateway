@@ -50,11 +50,9 @@ public final class SnapshotKeyTool {
     KeyPair pair = generator.generateKeyPair();
     String privateKey = Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded());
     String publicKey = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
-    writeNew(
-        managerFile, "HFG_SNAPSHOT_PRIVATE_KEY_BASE64=" + privateKey + System.lineSeparator());
+    writeNew(managerFile, "HFG_SNAPSHOT_PRIVATE_KEY_BASE64=" + privateKey + System.lineSeparator());
     try {
-      writeNew(
-          gatewayFile, "HFG_SNAPSHOT_PUBLIC_KEY_BASE64=" + publicKey + System.lineSeparator());
+      writeNew(gatewayFile, "HFG_SNAPSHOT_PUBLIC_KEY_BASE64=" + publicKey + System.lineSeparator());
     } catch (Exception failure) {
       Files.deleteIfExists(managerFile);
       throw failure;
@@ -70,8 +68,7 @@ public final class SnapshotKeyTool {
             PosixFilePermission.OTHERS_READ));
     String fingerprint =
         HexFormat.of()
-            .formatHex(
-                MessageDigest.getInstance("SHA-256").digest(pair.getPublic().getEncoded()));
+            .formatHex(MessageDigest.getInstance("SHA-256").digest(pair.getPublic().getEncoded()));
     return new GeneratedKeys(managerFile, gatewayFile, fingerprint);
   }
 
