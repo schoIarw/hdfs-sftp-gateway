@@ -68,15 +68,15 @@ Gateway 不配置 HDFS URI、XML、principal 或 keytab。它通过 Manager mTLS
 
 ## Ed25519 快照密钥
 
-示例命令仅用于生成初始密钥；私钥输出必须进入 Secret 管理系统：
+使用发布介质内的纯 Java 工具生成初始密钥；该方式依赖 JDK 17 自带的 Ed25519 实现，兼容 CentOS 7.9 自带 OpenSSL 1.0.2 不支持 Ed25519 的环境：
 
 ```bash
-openssl genpkey -algorithm ED25519 -out hfg-snapshot-private.pem
-openssl pkey -in hfg-snapshot-private.pem -outform DER | base64 -w0
-openssl pkey -in hfg-snapshot-private.pem -pubout -outform DER | base64 -w0
+sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
+sudo /opt/hfg/jdk-17/bin/java -cp bin/hfg-keytool.jar \
+  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
 ```
 
-Manager 配置第一行产生的 PKCS#8 DER Base64，Gateway 配置第二行产生的 X.509 公钥 DER Base64。不要提交 PEM、DER 或 Base64 值。
+工具生成 `hfg-snapshot-manager.env`（私钥，0600）和 `hfg-snapshot-gateway.env`（公钥，0644），且拒绝覆盖已有文件。将对应文件中的值写入 Manager/Gateway 环境配置；私钥需进入 Secret 管理系统，不要提交生成文件或 Base64 值。命令只输出公钥指纹，不输出私钥。
 
 ## Keepalived
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=HFG Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hfg
+Group=hfg
+EnvironmentFile=/etc/hfg/hfg-manager.env
+WorkingDirectory=/opt/hfg
+ExecStart=/opt/hfg/jdk-17/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -jar /opt/hfg/hfg-manager.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
