@@ -74,13 +74,38 @@ jobs:
           -Dtest=ManagerContextIntegrationTest,BusinessLogsIntegrationTest
           -Dsurefire.failIfNoSpecifiedTests=false test
 
+  centos7-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 17, cache: maven}
+      - name: Build and test snapshot key generator
+        run: ./mvnw --batch-mode -pl hfg-common-contract -am test package
+      - name: Verify JDK 17 Ed25519 in CentOS 7 userspace
+        run: |
+          mkdir -p "${RUNNER_TEMP}/hfg-centos7-keys"
+          docker run --rm \
+            -v "${JAVA_HOME}:/opt/java:ro" \
+            -v "${GITHUB_WORKSPACE}:/workspace:ro" \
+            -v "${RUNNER_TEMP}/hfg-centos7-keys:/keys" \
+            quay.io/centos/centos:7 \
+            /opt/java/bin/java -cp /workspace/hfg-common-contract/target/hfg-common-contract-0.1.1.jar \
+            io.github.scholiarw.hfg.contract.SnapshotKeyTool /keys
+          grep -q '^HFG_SNAPSHOT_PRIVATE_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-keys/hfg-snapshot-manager.env"
+          grep -q '^HFG_SNAPSHOT_PUBLIC_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-keys/hfg-snapshot-gateway.env"
+      - name: Validate CentOS 7 deployment files
+        run: |
+          bash -n deploy/keepalived/hfg-gateway-health.sh scripts/package-linux-x86_64.sh
+          ! grep -Eq 'AmbientCapabilities|TasksMax|ProtectSystem=strict' deploy/systemd/centos7/*.service
+
   release-linux-x86_64:
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[release-x64]')
-    needs: [backend, mysql-context]
+    needs: [backend, mysql-context, centos7-compat]
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     env:
-      HFG_RELEASE_VERSION: 0.1.0
+      HFG_RELEASE_VERSION: 0.1.1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

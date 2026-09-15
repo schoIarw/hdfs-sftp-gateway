@@ -25,8 +25,8 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.0.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.0.jar` | FTP/SFTP Gateway |
+| `hfg-manager-api/target/hfg-manager-api-0.1.1.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.1.jar` | FTP/SFTP Gateway |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：
@@ -60,6 +60,8 @@ sudo install -o hfg -g hfg -m 0550 \
   hfg-gateway-app/target/hfg-gateway-app-*.jar /opt/hfg/hfg-gateway.jar
 ```
 
+CentOS 7.9 使用 systemd 219 和 OpenSSL 1.0.2。应将独立 JDK 17 安装到 `/opt/hfg/jdk-17`，使用 `deploy/systemd/centos7/` 中的 unit；默认绑定 21/22 时执行 `setcap cap_net_bind_service=+ep /opt/hfg/jdk-17/bin/java`。不要对共享的 `/usr/bin/java` 授权，JDK 升级后需重新设置 capability。也可改用 2121/2222 避免 capability。
+
 ### 2. 初始化数据库
 
 以下命令由数据库管理员执行，密码必须替换：
@@ -90,12 +92,12 @@ Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备�
 ### 3. 生成快照签名密钥
 
 ```bash
-openssl genpkey -algorithm ED25519 -out hfg-snapshot-private.pem
-openssl pkey -in hfg-snapshot-private.pem -outform DER | base64 -w0; echo
-openssl pkey -in hfg-snapshot-private.pem -pubout -outform DER | base64 -w0; echo
+sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
+sudo java -cp hfg-common-contract/target/hfg-common-contract-0.1.1.jar \
+  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
 ```
 
-第一段 Base64 配置为 Manager 的 `HFG_SNAPSHOT_PRIVATE_KEY_BASE64`，第二段配置为所有 Gateway 的 `HFG_SNAPSHOT_PUBLIC_KEY_BASE64`。私钥必须由 Secret 管理系统保存，不得提交到仓库。
+将 `hfg-snapshot-manager.env` 中的值配置给 Manager，将 `hfg-snapshot-gateway.env` 中的值配置给所有 Gateway。工具使用 JDK 17 原生 Ed25519，不依赖 OpenSSL，并拒绝覆盖已有密钥。私钥必须由 Secret 管理系统保存，不得提交到仓库。
 
 ### 4. 配置并启动 Manager
 
@@ -217,7 +219,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ### 3. 构建并运行 Gateway 镜像
 
 ```bash
-docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.0 .
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.1 .
 ```
 
 FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
@@ -228,7 +230,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.0
+  hfg-gateway:0.1.1
 ```
 
 镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。

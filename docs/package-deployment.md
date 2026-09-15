@@ -1,4 +1,4 @@
-# HFG 0.1.0 Linux x86_64 编译介质部署手册
+# HFG 0.1.1 Linux x86_64 编译介质部署手册
 
 本文只使用发布页下载的编译后介质部署，不要求目标服务器具有源码、Git、Maven、Node.js 或 npm。HFG 分为两个进程：
 
@@ -9,8 +9,8 @@
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-0.1.0-linux-x86_64.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus、Docker 模板和文档 |
-| `hfg-0.1.0-linux-x86_64-docker-images.tar.gz` | 已构建的 `linux/amd64` Manager/Gateway Docker 镜像 |
+| `hfg-0.1.1-linux-x86_64.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus、Docker 模板和文档 |
+| `hfg-0.1.1-linux-x86_64-docker-images.tar.gz` | 已构建的 `linux/amd64` Manager/Gateway Docker 镜像 |
 | `SHA256SUMS` | 两个介质的 SHA-256 校验值 |
 | `bom.json` | CycloneDX SBOM |
 
@@ -20,12 +20,12 @@
 mkdir -p /tmp/hfg-install
 cd /tmp/hfg-install
 
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.0/hfg-0.1.0-linux-x86_64.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.0/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/hfg-0.1.1-linux-x86_64.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 
-tar -xzf hfg-0.1.0-linux-x86_64.tar.gz
-cd hfg-0.1.0-linux-x86_64
+tar -xzf hfg-0.1.1-linux-x86_64.tar.gz
+cd hfg-0.1.1-linux-x86_64
 uname -m
 cat RELEASE-INFO.txt
 ```
@@ -35,7 +35,7 @@ cat RELEASE-INFO.txt
 解压后的目录：
 
 ```text
-bin/          Manager/Gateway 可执行 JAR
+bin/          Manager/Gateway 可执行 JAR 与 Java 密钥工具
 config/       Manager/Gateway 环境变量模板
 systemd/      systemd unit
 keepalived/   主备切换配置和脚本
@@ -100,6 +100,30 @@ sudo apt-get update
 sudo apt-get install -y openjdk-17-jre-headless keepalived curl iproute2
 ```
 
+#### CentOS 7.9 专项说明
+
+CentOS 7.9 的系统 OpenSSL 1.0.2 不提供 Ed25519，且 systemd 219 不支持通用 unit 中的部分新指令。不要使用 `openssl genpkey -algorithm ED25519`。建议给 HFG 安装独立的 Linux x64 JDK 17 到固定目录，并使用介质中的 CentOS 7 unit：
+
+```bash
+sudo yum install -y keepalived curl iproute libcap
+sudo install -d -o root -g root -m 0755 /opt/hfg/jdk-17
+# 将已下载并校验的 JDK 17 x64 tar.gz 解压到临时目录后复制内容：
+sudo cp -a /tmp/jdk-17/. /opt/hfg/jdk-17/
+/opt/hfg/jdk-17/bin/java -version
+
+sudo install -o root -g root -m 0644 systemd/centos7/hfg-manager.service /etc/systemd/system/hfg-manager.service
+sudo install -o root -g root -m 0644 systemd/centos7/hfg-gateway.service /etc/systemd/system/hfg-gateway.service
+```
+
+Gateway 使用默认 21/22 端口时，仅对 HFG 专用 JDK 的 Java 可执行文件授予低端口能力：
+
+```bash
+sudo setcap cap_net_bind_service=+ep /opt/hfg/jdk-17/bin/java
+getcap /opt/hfg/jdk-17/bin/java
+```
+
+不要对系统共享的 `/usr/bin/java` 设置 capability。JDK 升级会替换二进制，升级后必须重新执行并验证 `setcap`。若安全规范禁止文件 capability，则将 FTP/SFTP 改为 2121/2222，并通过防火墙/NAT 映射外部端口。CentOS 7 unit 有意不配置 Gateway 的 `NoNewPrivileges`，否则文件 capability 无法在启动时生效。
+
 ### 3.2 创建运行账号并安装介质
 
 Manager 和所有 Gateway 节点均执行：
@@ -114,6 +138,7 @@ Manager 主机：
 
 ```bash
 sudo install -o hfg -g hfg -m 0550 bin/hfg-manager.jar /opt/hfg/hfg-manager.jar
+sudo install -o root -g hfg -m 0550 bin/hfg-keytool.jar /opt/hfg/hfg-keytool.jar
 sudo install -o root -g root -m 0644 systemd/hfg-manager.service /etc/systemd/system/
 ```
 
@@ -153,14 +178,12 @@ GRANT ALL PRIVILEGES ON hfg_logs.* TO 'hfg'@'%';
 配置快照使用 Ed25519 签名。只在安全的 Manager 管理机执行：
 
 ```bash
-openssl genpkey -algorithm ED25519 -out hfg-snapshot-private.pem
-openssl pkey -in hfg-snapshot-private.pem -outform DER | base64 -w0; echo
-openssl pkey -in hfg-snapshot-private.pem -pubout -outform DER | base64 -w0; echo
+sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
+sudo java -cp /opt/hfg/hfg-keytool.jar \
+  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
 ```
 
-第一段 Base64 写入 Manager 的 `HFG_SNAPSHOT_PRIVATE_KEY_BASE64`，第二段写入所有 Gateway 的 `HFG_SNAPSHOT_PUBLIC_KEY_BASE64`。私钥必须存入 Secret 管理系统，不能进入代码仓库或普通备份。
-
-此处 openssl 只用于初始化配置快照签名密钥；Gateway mTLS 客户端证书仍由 Manager 使用 Java 密码学 API 生成并下载，不依赖 openssl。
+工具依靠 JDK 17 原生 Ed25519，不调用 OpenSSL，适用于 CentOS 7.9。它生成 `hfg-snapshot-manager.env`（私钥，0600）与 `hfg-snapshot-gateway.env`（公钥，0644），拒绝覆盖已有文件，终端只显示公钥指纹。把文件中的变量分别合并到 Manager 与所有 Gateway 的环境文件；私钥必须存入 Secret 管理系统，不能进入代码仓库或普通备份。
 
 ### 3.5 配置 Manager
 
@@ -356,12 +379,12 @@ Docker 方式使用发布页提供的已编译 amd64 镜像，目标机不进行
 
 ```bash
 cd /tmp/hfg-install
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.0/hfg-0.1.0-linux-x86_64-docker-images.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/hfg-0.1.1-linux-x86_64-docker-images.tar.gz
 sha256sum --check --ignore-missing SHA256SUMS
-gzip -dc hfg-0.1.0-linux-x86_64-docker-images.tar.gz | docker load
+gzip -dc hfg-0.1.1-linux-x86_64-docker-images.tar.gz | docker load
 
-docker image inspect hfg-manager:0.1.0 --format '{{.Os}}/{{.Architecture}}'
-docker image inspect hfg-gateway:0.1.0 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-manager:0.1.1 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-gateway:0.1.1 --format '{{.Os}}/{{.Architecture}}'
 ```
 
 两条命令都应输出 `linux/amd64`。镜像包只包含 HFG 镜像及 JRE 基础层；Compose 中 PostgreSQL、MySQL、Prometheus 镜像仍需从镜像仓库获取，完全离线环境应提前另行导入这些第三方镜像。
@@ -371,8 +394,8 @@ docker image inspect hfg-gateway:0.1.0 --format '{{.Os}}/{{.Architecture}}'
 PostgreSQL：
 
 ```bash
-cd /tmp/hfg-install/hfg-0.1.0-linux-x86_64
-export HFG_VERSION=0.1.0
+cd /tmp/hfg-install/hfg-0.1.1-linux-x86_64
+export HFG_VERSION=0.1.1
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
 export HFG_SNAPSHOT_PRIVATE_KEY_BASE64='<PKCS8_DER_BASE64>'
@@ -384,7 +407,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 MySQL：
 
 ```bash
-export HFG_VERSION=0.1.0
+export HFG_VERSION=0.1.1
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_MYSQL_ROOT_PASSWORD='REPLACE_WITH_ROOT_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
@@ -409,7 +432,7 @@ docker run -d --name hfg-manager --restart unless-stopped \
   -p 8080:8080 -p 19090:19090 \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-manager:0.1.0
+  hfg-manager:0.1.1
 
 docker logs --tail 200 hfg-manager
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
@@ -428,7 +451,7 @@ sudo chown -R 10001:10001 /etc/hfg/pki /var/lib/hfg
 sudo chown 10001:10001 /etc/hfg/ssh_host_ed25519_key
 sudo chmod 0700 /etc/hfg/pki
 sudo chmod 0600 /etc/hfg/ssh_host_ed25519_key
-export HFG_VERSION=0.1.0
+export HFG_VERSION=0.1.1
 docker compose -f docker/compose.gateway.yaml up -d
 docker compose -f docker/compose.gateway.yaml ps
 curl --fail http://127.0.0.1:18080/actuator/health/readiness
@@ -443,7 +466,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.0
+  hfg-gateway:0.1.1
 ```
 
 Keepalived 仍运行在宿主机，使用本机 18080 readiness 和 21/22 监听状态决定是否持有 VIP。
