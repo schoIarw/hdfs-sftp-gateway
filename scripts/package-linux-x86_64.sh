@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.1}"
+VERSION="${1:-0.1.2}"
 ARCH="$(uname -m)"
 MEDIA_NAME="hfg-${VERSION}-linux-x86_64"
 DIST_DIR="${ROOT_DIR}/dist"

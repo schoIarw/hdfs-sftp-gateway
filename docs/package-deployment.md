@@ -1,4 +1,4 @@
-# HFG 0.1.1 Linux x86_64 编译介质部署手册
+# HFG 0.1.2 Linux x86_64 编译介质部署手册
 
 本文只使用发布页下载的编译后介质部署，不要求目标服务器具有源码、Git、Maven、Node.js 或 npm。HFG 分为两个进程：
 
@@ -9,8 +9,8 @@
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-0.1.1-linux-x86_64.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus、Docker 模板和文档 |
-| `hfg-0.1.1-linux-x86_64-docker-images.tar.gz` | 已构建的 `linux/amd64` Manager/Gateway Docker 镜像 |
+| `hfg-0.1.2-linux-x86_64.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus、Docker 模板和文档 |
+| `hfg-0.1.2-linux-x86_64-docker-images.tar.gz` | 已构建的 `linux/amd64` Manager/Gateway Docker 镜像 |
 | `SHA256SUMS` | 两个介质的 SHA-256 校验值 |
 | `bom.json` | CycloneDX SBOM |
 
@@ -20,12 +20,12 @@
 mkdir -p /tmp/hfg-install
 cd /tmp/hfg-install
 
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/hfg-0.1.1-linux-x86_64.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.2/hfg-0.1.2-linux-x86_64.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.2/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 
-tar -xzf hfg-0.1.1-linux-x86_64.tar.gz
-cd hfg-0.1.1-linux-x86_64
+tar -xzf hfg-0.1.2-linux-x86_64.tar.gz
+cd hfg-0.1.2-linux-x86_64
 uname -m
 cat RELEASE-INFO.txt
 ```
@@ -379,12 +379,12 @@ Docker 方式使用发布页提供的已编译 amd64 镜像，目标机不进行
 
 ```bash
 cd /tmp/hfg-install
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.1/hfg-0.1.1-linux-x86_64-docker-images.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.2/hfg-0.1.2-linux-x86_64-docker-images.tar.gz
 sha256sum --check --ignore-missing SHA256SUMS
-gzip -dc hfg-0.1.1-linux-x86_64-docker-images.tar.gz | docker load
+gzip -dc hfg-0.1.2-linux-x86_64-docker-images.tar.gz | docker load
 
-docker image inspect hfg-manager:0.1.1 --format '{{.Os}}/{{.Architecture}}'
-docker image inspect hfg-gateway:0.1.1 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-manager:0.1.2 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-gateway:0.1.2 --format '{{.Os}}/{{.Architecture}}'
 ```
 
 两条命令都应输出 `linux/amd64`。镜像包只包含 HFG 镜像及 JRE 基础层；Compose 中 PostgreSQL、MySQL、Prometheus 镜像仍需从镜像仓库获取，完全离线环境应提前另行导入这些第三方镜像。
@@ -394,8 +394,8 @@ docker image inspect hfg-gateway:0.1.1 --format '{{.Os}}/{{.Architecture}}'
 PostgreSQL：
 
 ```bash
-cd /tmp/hfg-install/hfg-0.1.1-linux-x86_64
-export HFG_VERSION=0.1.1
+cd /tmp/hfg-install/hfg-0.1.2-linux-x86_64
+export HFG_VERSION=0.1.2
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
 export HFG_SNAPSHOT_PRIVATE_KEY_BASE64='<PKCS8_DER_BASE64>'
@@ -407,7 +407,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 MySQL：
 
 ```bash
-export HFG_VERSION=0.1.1
+export HFG_VERSION=0.1.2
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_MYSQL_ROOT_PASSWORD='REPLACE_WITH_ROOT_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
@@ -432,7 +432,7 @@ docker run -d --name hfg-manager --restart unless-stopped \
   -p 8080:8080 -p 19090:19090 \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-manager:0.1.1
+  hfg-manager:0.1.2
 
 docker logs --tail 200 hfg-manager
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
@@ -451,7 +451,7 @@ sudo chown -R 10001:10001 /etc/hfg/pki /var/lib/hfg
 sudo chown 10001:10001 /etc/hfg/ssh_host_ed25519_key
 sudo chmod 0700 /etc/hfg/pki
 sudo chmod 0600 /etc/hfg/ssh_host_ed25519_key
-export HFG_VERSION=0.1.1
+export HFG_VERSION=0.1.2
 docker compose -f docker/compose.gateway.yaml up -d
 docker compose -f docker/compose.gateway.yaml ps
 curl --fail http://127.0.0.1:18080/actuator/health/readiness
@@ -466,7 +466,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.1
+  hfg-gateway:0.1.2
 ```
 
 Keepalived 仍运行在宿主机，使用本机 18080 readiness 和 21/22 监听状态决定是否持有 VIP。
