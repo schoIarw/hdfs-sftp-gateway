@@ -1,7 +1,7 @@
 MVN ?= ./mvnw
 
 .PHONY: verify package dist-x64 backend frontend clean
-VERSION ?= 0.1.1
+VERSION ?= 0.1.2
 verify: frontend backend
 
 package: verify
