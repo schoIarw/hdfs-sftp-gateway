@@ -2,7 +2,7 @@
 
 HFG 提供两种安装方式：Native（直接运行 Java JAR）和 Docker。生产环境采用相同的双进程架构：`hfg-manager.jar` 是管理 API 与 React 页面合并包，`hfg-gateway.jar` 提供 FTP/SFTP 数据面。前端不再单独部署，访问 Manager 的 `http(s)://<host>:8080/` 即可打开管理页面。
 
-如使用 GitHub Release 中已经编译完成的 Linux x86_64 介质，请直接阅读 [编译介质分步部署手册](package-deployment.md)，目标服务器不需要源码、Maven、Node.js 或 npm。
+如使用 GitHub Release 中已经编译完成的 Linux x86_64 介质，请直接阅读 [编译介质分步部署手册](package-deployment.md)。Native 与 Docker 为两个独立、自包含的压缩包，按部署方式下载其一即可；目标服务器不需要源码、Maven、Node.js 或 npm。
 
 Native 模式更适合使用 systemd、Keepalived 和宿主机 VIP 的生产主备节点；Docker 模式适合开发、验收及已有容器运维体系的环境。两种模式都需要外部 HDFS，生产环境还应使用独立 PostgreSQL/MySQL、Prometheus 和证书/Secret 管理设施。
 
@@ -25,8 +25,8 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.2.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.2.jar` | FTP/SFTP Gateway |
+| `hfg-manager-api/target/hfg-manager-api-0.1.3.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.3.jar` | FTP/SFTP Gateway |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：
@@ -93,7 +93,7 @@ Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备�
 
 ```bash
 sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
-sudo java -cp hfg-common-contract/target/hfg-common-contract-0.1.2.jar \
+sudo java -cp hfg-common-contract/target/hfg-common-contract-0.1.3.jar \
   io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
 ```
 
@@ -219,7 +219,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ### 3. 构建并运行 Gateway 镜像
 
 ```bash
-docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.2 .
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.3 .
 ```
 
 FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
@@ -230,7 +230,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.2
+  hfg-gateway:0.1.3
 ```
 
 镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。

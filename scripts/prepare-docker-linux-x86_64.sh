@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VERSION="${1:-0.1.3}"
+ARCH="$(uname -m)"
+MEDIA_NAME="hfg-${VERSION}-linux-x86_64-docker"
+DIST_DIR="${ROOT_DIR}/dist"
+STAGE_DIR="${DIST_DIR}/${MEDIA_NAME}"
+
+if [[ "${ARCH}" != "x86_64" ]]; then
+  echo "This release must be assembled on x86_64; detected ${ARCH}." >&2
+  exit 1
+fi
+
+MANAGER_JAR="${ROOT_DIR}/hfg-manager-api/target/hfg-manager-api-${VERSION}.jar"
+GATEWAY_JAR="${ROOT_DIR}/hfg-gateway-app/target/hfg-gateway-app-${VERSION}.jar"
+KEYTOOL_JAR="${ROOT_DIR}/hfg-common-contract/target/hfg-common-contract-${VERSION}.jar"
+SBOM="${ROOT_DIR}/target/bom.json"
+for required in "${MANAGER_JAR}" "${GATEWAY_JAR}" "${KEYTOOL_JAR}" "${SBOM}"; do
+  if [[ ! -f "${required}" ]]; then
+    echo "Missing build output: ${required}" >&2
+    exit 1
+  fi
+done
+
+case "${STAGE_DIR}" in
+  "${DIST_DIR}"/hfg-*-linux-x86_64-docker) ;;
+  *) echo "Unsafe staging path: ${STAGE_DIR}" >&2; exit 1 ;;
+esac
+
+rm -rf "${STAGE_DIR}"
+install -d "${STAGE_DIR}/build/bin" "${STAGE_DIR}/build/runtime" "${STAGE_DIR}/config" \
+  "${STAGE_DIR}/docker" "${STAGE_DIR}/images" "${STAGE_DIR}/keepalived" \
+  "${STAGE_DIR}/prometheus" "${STAGE_DIR}/tools" "${STAGE_DIR}/docs"
+install -m 0644 "${MANAGER_JAR}" "${STAGE_DIR}/build/bin/hfg-manager.jar"
+install -m 0644 "${GATEWAY_JAR}" "${STAGE_DIR}/build/bin/hfg-gateway.jar"
+install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.manager" "${STAGE_DIR}/build/runtime/"
+install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.gateway" "${STAGE_DIR}/build/runtime/"
+install -m 0644 "${KEYTOOL_JAR}" "${STAGE_DIR}/tools/hfg-keytool.jar"
+install -m 0644 "${SBOM}" "${STAGE_DIR}/SBOM.cyclonedx.json"
+install -m 0644 "${ROOT_DIR}/deploy/env/hfg-manager.env.example" "${STAGE_DIR}/config/"
+install -m 0644 "${ROOT_DIR}/deploy/env/hfg-gateway.env.example" "${STAGE_DIR}/config/"
+install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.postgresql.yaml" "${STAGE_DIR}/docker/"
+install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.mysql.yaml" "${STAGE_DIR}/docker/"
+install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.gateway.yaml" "${STAGE_DIR}/docker/"
+install -m 0755 "${ROOT_DIR}/deploy/keepalived/hfg-gateway-health.sh" "${STAGE_DIR}/keepalived/"
+install -m 0755 "${ROOT_DIR}/deploy/keepalived/hfg-role-change.sh" "${STAGE_DIR}/keepalived/"
+install -m 0644 "${ROOT_DIR}/deploy/keepalived/keepalived.conf.template" "${STAGE_DIR}/keepalived/"
+install -m 0644 "${ROOT_DIR}/deploy/prometheus/prometheus.yaml" "${STAGE_DIR}/prometheus/"
+install -m 0644 "${ROOT_DIR}/deploy/prometheus/hfg-rules.yaml" "${STAGE_DIR}/prometheus/"
+install -m 0644 "${ROOT_DIR}/docs/package-deployment.md" "${STAGE_DIR}/docs/"
+install -m 0644 "${ROOT_DIR}/docs/deployment.md" "${STAGE_DIR}/docs/"
+install -m 0644 "${ROOT_DIR}/docs/configuration.md" "${STAGE_DIR}/docs/"
+install -m 0644 "${ROOT_DIR}/docs/testing.md" "${STAGE_DIR}/docs/"
+
+cat > "${STAGE_DIR}/README.txt" <<EOF
+HFG ${VERSION} Linux x86_64 Docker deployment medium
+
+Start here: docs/package-deployment.md, section "Docker 部署"
+Load images: docker load -i images/hfg-images.tar
+Compose files: docker/
+
+This archive contains no Native Manager/Gateway executable JARs.
+Use hfg-${VERSION}-linux-x86_64-native.tar.gz for Native deployment.
+EOF
+
+echo "${STAGE_DIR}"
