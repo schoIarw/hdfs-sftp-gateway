@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.2}"
+VERSION="${1:-0.1.3}"
 ARCH="$(uname -m)"
-MEDIA_NAME="hfg-${VERSION}-linux-x86_64"
+MEDIA_NAME="hfg-${VERSION}-linux-x86_64-native"
 DIST_DIR="${ROOT_DIR}/dist"
 STAGE_DIR="${DIST_DIR}/${MEDIA_NAME}"
 
@@ -26,13 +26,13 @@ for required in "${MANAGER_JAR}" "${GATEWAY_JAR}" "${KEYTOOL_JAR}" "${SBOM}"; do
 done
 
 case "${STAGE_DIR}" in
-  "${DIST_DIR}"/hfg-*-linux-x86_64) ;;
+  "${DIST_DIR}"/hfg-*-linux-x86_64-native) ;;
   *) echo "Unsafe staging path: ${STAGE_DIR}" >&2; exit 1 ;;
 esac
 
 rm -rf "${STAGE_DIR}"
 install -d "${STAGE_DIR}/bin" "${STAGE_DIR}/config" "${STAGE_DIR}/systemd/centos7" \
-  "${STAGE_DIR}/keepalived" "${STAGE_DIR}/prometheus" "${STAGE_DIR}/docker" "${STAGE_DIR}/docs"
+  "${STAGE_DIR}/keepalived" "${STAGE_DIR}/prometheus" "${STAGE_DIR}/docs"
 
 install -m 0644 "${MANAGER_JAR}" "${STAGE_DIR}/bin/hfg-manager.jar"
 install -m 0644 "${GATEWAY_JAR}" "${STAGE_DIR}/bin/hfg-gateway.jar"
@@ -49,11 +49,6 @@ install -m 0755 "${ROOT_DIR}/deploy/keepalived/hfg-role-change.sh" "${STAGE_DIR}
 install -m 0644 "${ROOT_DIR}/deploy/keepalived/keepalived.conf.template" "${STAGE_DIR}/keepalived/"
 install -m 0644 "${ROOT_DIR}/deploy/prometheus/prometheus.yaml" "${STAGE_DIR}/prometheus/"
 install -m 0644 "${ROOT_DIR}/deploy/prometheus/hfg-rules.yaml" "${STAGE_DIR}/prometheus/"
-install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.manager" "${STAGE_DIR}/docker/"
-install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.gateway" "${STAGE_DIR}/docker/"
-install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.postgresql.yaml" "${STAGE_DIR}/docker/"
-install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.mysql.yaml" "${STAGE_DIR}/docker/"
-install -m 0644 "${ROOT_DIR}/deploy/docker/package/compose.gateway.yaml" "${STAGE_DIR}/docker/"
 install -m 0644 "${ROOT_DIR}/docs/package-deployment.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/deployment.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/configuration.md" "${STAGE_DIR}/docs/"
@@ -72,15 +67,15 @@ Runtime Java: 17
 EOF
 
 cat > "${STAGE_DIR}/README.txt" <<EOF
-HFG ${VERSION} Linux x86_64 deployment medium
+HFG ${VERSION} Linux x86_64 Native deployment medium
 
 Start here: docs/package-deployment.md
 Manager executable: bin/hfg-manager.jar
 Gateway executable: bin/hfg-gateway.jar
 Snapshot key generator: bin/hfg-keytool.jar
 
-The Docker image archive is distributed as a separate release asset:
-hfg-${VERSION}-linux-x86_64-docker-images.tar.gz
+This archive contains no Docker images or Docker deployment files.
+Use hfg-${VERSION}-linux-x86_64-docker.tar.gz for Docker deployment.
 EOF
 
 find "${STAGE_DIR}" -type d -exec chmod 0755 {} +
