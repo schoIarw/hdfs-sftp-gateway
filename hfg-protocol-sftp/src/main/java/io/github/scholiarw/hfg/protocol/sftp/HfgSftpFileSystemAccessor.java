@@ -4,6 +4,7 @@ import io.github.scholiarw.hfg.contract.*;
 import io.github.scholiarw.hfg.storage.StorageEntry;
 import io.github.scholiarw.hfg.transfer.*;
 import java.io.IOException;
+import java.nio.channels.Channel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -59,6 +60,18 @@ public final class HfgSftpFileSystemAccessor implements SftpFileSystemAccessor {
         options.contains(StandardOpenOption.APPEND) ? size(context(subsystem), virtual(file)) : 0;
     return new HfgSftpChannel(
         transfers, context(subsystem), virtual(file), read, write, overwrite, initial);
+  }
+
+  @Override
+  public void syncFileData(
+      SftpSubsystemProxy subsystem,
+      FileHandle fileHandle,
+      Path file,
+      String handle,
+      Channel channel)
+      throws IOException {
+    // HDFS data is committed when the channel closes; flushing the staged upload is enough here.
+    if (channel instanceof HfgSftpChannel hfgChannel) hfgChannel.flush();
   }
 
   @Override

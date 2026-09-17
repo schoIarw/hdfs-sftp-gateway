@@ -6,7 +6,6 @@ import java.util.List;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
-import org.apache.sshd.sftp.server.SftpSubsystemFactory;
 
 public final class HfgSftpServer implements AutoCloseable {
   private final SshServer server;
@@ -20,8 +19,7 @@ public final class HfgSftpServer implements AutoCloseable {
     server.setPasswordAuthenticator(authenticator);
     server.setPublickeyAuthenticator(authenticator);
     server.setFileSystemFactory(new VirtualFileSystemFactory(Path.of("/")));
-    server.setSubsystemFactories(
-        List.of(new SftpSubsystemFactory.Builder().withFileSystemAccessor(files).build()));
+    server.setSubsystemFactories(List.of(new HfgSftpSubsystemFactory(files)));
     server.setShellFactory(null);
     server.setCommandFactory(null);
   }

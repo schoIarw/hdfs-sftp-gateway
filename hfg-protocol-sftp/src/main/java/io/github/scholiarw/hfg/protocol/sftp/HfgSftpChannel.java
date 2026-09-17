@@ -99,6 +99,10 @@ final class HfgSftpChannel implements SeekableByteChannel {
     return this;
   }
 
+  void flush() throws IOException {
+    if (upload != null) upload.flush();
+  }
+
   @Override
   public boolean isOpen() {
     return open;

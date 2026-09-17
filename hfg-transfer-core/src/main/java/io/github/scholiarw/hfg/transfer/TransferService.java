@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.UUID;
 
 public final class TransferService {
+  /** Reserved staging directory name; it is an HFG implementation detail, not user content. */
+  static final String STAGING_DIRECTORY = ".uploading";
+
   private final StorageClientFactory storageFactory;
   private final PolicyEngine policy;
   private final TransferLimiter limiter;
@@ -30,7 +33,9 @@ public final class TransferService {
       throws IOException {
     var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
     try (var storage = storage(context)) {
-      return storage.list(resolved.storagePath(), token, pageSize);
+      return storage.list(resolved.storagePath(), token, pageSize).stream()
+          .filter(entry -> !STAGING_DIRECTORY.equals(entry.name()))
+          .toList();
     }
   }
 
@@ -69,7 +74,7 @@ public final class TransferService {
     var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
     StorageClient storage = storage(context);
     String parent = parent(resolved.storagePath());
-    String stagingDir = parent + "/.uploading";
+    String stagingDir = stagingPath(parent);
     String stagingPath = stagingDir + "/" + transferId + ".part";
     try {
       storage.mkdirs(stagingDir);
@@ -110,7 +115,13 @@ public final class TransferService {
   public void delete(TransferContext context, String path, boolean recursive) throws IOException {
     var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
     try (var storage = storage(context)) {
-      storage.delete(resolved.storagePath(), recursive);
+      boolean deleted = storage.delete(resolved.storagePath(), recursive);
+      if (!deleted && !recursive)
+        deleted = deleteWithStagingCleanup(storage, resolved.storagePath());
+      if (!deleted)
+        throw new HfgException(
+            HfgErrorCode.PATH_NOT_FOUND,
+            "Delete rejected: " + resolved.virtualPath() + " does not exist or is not removable");
     }
   }
 
@@ -126,6 +137,25 @@ public final class TransferService {
       if (!storage.rename(from.storagePath(), to.storagePath()))
         throw new IOException("Rename rejected by storage");
     }
+  }
+
+  /**
+   * A directory that took part in an upload still holds HFG's {@code .uploading} staging directory,
+   * so removing it would be rejected as "not empty". Drop that internal directory when no partial
+   * upload is in flight and retry once.
+   */
+  private static boolean deleteWithStagingCleanup(StorageClient storage, String directoryPath)
+      throws IOException {
+    String staging = stagingPath(directoryPath);
+    if (!storage.exists(staging)) return false;
+    for (StorageEntry entry : storage.list(staging, null, 1000))
+      if (entry.name().endsWith(".part")) return false;
+    storage.delete(staging, false);
+    return storage.delete(directoryPath, false);
+  }
+
+  private static String stagingPath(String parent) {
+    return parent + (parent.endsWith("/") ? "" : "/") + STAGING_DIRECTORY;
   }
 
   private StorageClient storage(TransferContext context) throws IOException {
@@ -286,6 +316,10 @@ public final class TransferService {
       int wrote = handle.write(source);
       bytes += wrote;
       return wrote;
+    }
+
+    public void flush() throws IOException {
+      handle.flush();
     }
 
     public void commit() throws IOException {
