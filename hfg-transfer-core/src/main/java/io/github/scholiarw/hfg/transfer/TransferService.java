@@ -5,6 +5,7 @@ import io.github.scholiarw.hfg.policy.PolicyEngine;
 import io.github.scholiarw.hfg.storage.*;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.DirectoryNotEmptyException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -115,13 +116,36 @@ public final class TransferService {
   public void delete(TransferContext context, String path, boolean recursive) throws IOException {
     var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
     try (var storage = storage(context)) {
-      boolean deleted = storage.delete(resolved.storagePath(), recursive);
-      if (!deleted && !recursive)
-        deleted = deleteWithStagingCleanup(storage, resolved.storagePath());
-      if (!deleted)
-        throw new HfgException(
-            HfgErrorCode.PATH_NOT_FOUND,
-            "Delete rejected: " + resolved.virtualPath() + " does not exist or is not removable");
+      IOException failure = null;
+      boolean deleted;
+      try {
+        deleted = storage.delete(resolved.storagePath(), recursive);
+      } catch (IOException e) {
+        // HDFS reports "Directory is not empty" as an exception instead of a false result.
+        deleted = false;
+        failure = e;
+      }
+      if (!deleted && !recursive && dropIdleStagingDirectory(storage, resolved.storagePath())) {
+        try {
+          deleted = storage.delete(resolved.storagePath(), false);
+          failure = null;
+        } catch (IOException e) {
+          failure = e;
+        }
+      }
+      if (deleted) return;
+      if (isDirectory(storage, resolved.storagePath()))
+        throw new DirectoryNotEmptyException(resolved.virtualPath());
+      throw new HfgException(
+          HfgErrorCode.PATH_NOT_FOUND,
+          "Delete rejected: "
+              + resolved.virtualPath()
+              + " does not exist"
+              + (failure == null || failure.getMessage() == null
+                  ? ""
+                  : "（" + failure.getMessage() + "）"),
+          null,
+          failure);
     }
   }
 
@@ -141,17 +165,28 @@ public final class TransferService {
 
   /**
    * A directory that took part in an upload still holds HFG's {@code .uploading} staging directory,
-   * so removing it would be rejected as "not empty". Drop that internal directory when no partial
-   * upload is in flight and retry once.
+   * so removing it is rejected as "not empty". Drop that internal directory when no partial upload
+   * is in flight; the caller retries the delete afterwards.
    */
-  private static boolean deleteWithStagingCleanup(StorageClient storage, String directoryPath)
+  private static boolean dropIdleStagingDirectory(StorageClient storage, String directoryPath)
       throws IOException {
     String staging = stagingPath(directoryPath);
-    if (!storage.exists(staging)) return false;
-    for (StorageEntry entry : storage.list(staging, null, 1000))
-      if (entry.name().endsWith(".part")) return false;
-    storage.delete(staging, false);
-    return storage.delete(directoryPath, false);
+    try {
+      if (!storage.exists(staging)) return false;
+      for (StorageEntry entry : storage.list(staging, null, 1000))
+        if (entry.name().endsWith(".part")) return false;
+    } catch (IOException e) {
+      return false;
+    }
+    return storage.delete(staging, true);
+  }
+
+  private static boolean isDirectory(StorageClient storage, String path) {
+    try {
+      return storage.stat(path).directory();
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   private static String stagingPath(String parent) {
