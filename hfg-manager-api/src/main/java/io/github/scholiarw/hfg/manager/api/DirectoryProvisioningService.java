@@ -24,12 +24,14 @@ class DirectoryProvisioningService {
         db.sql(
                 "select d.id from directory_mapping d where d.auto_create=true and d.provisioning_status in('PENDING','FAILED') order by d.created_at limit 20")
             .query()
-            .listOfRows())
+            .listOfRows()) {
+      UUID id = UUID.fromString(String.valueOf(row.get("id")));
       try {
-        provision(UUID.fromString(String.valueOf(row.get("id"))));
+        provision(id);
       } catch (Exception e) {
-        log.warn("Directory provisioning retry failed: {}", e.getMessage());
+        log.warn("Directory provisioning retry failed for {}", id, e);
       }
+    }
   }
 
   void provision(UUID id) {
@@ -67,7 +69,7 @@ class DirectoryProvisioningService {
     } catch (Exception e) {
       db.sql(
               "update directory_mapping set provisioning_status='FAILED',provisioning_error=:e,updated_at=:n where id=:id")
-          .param("e", truncate(e.getMessage()))
+          .param("e", truncate(describe(e)))
           .param("n", java.sql.Timestamp.from(Instant.now()))
           .param("id", id)
           .update();
@@ -87,6 +89,17 @@ class DirectoryProvisioningService {
       throw new IllegalArgumentException(
           "Only file: keytab references are resolved by this deployment");
     return java.nio.file.Path.of(URI.create(value)).toString();
+  }
+
+  /** Keeps the whole cause chain so operators see the HDFS reason, not just the wrapper. */
+  private static String describe(Throwable failure) {
+    List<String> parts = new ArrayList<>();
+    for (Throwable current = failure; current != null; current = current.getCause()) {
+      String message = current.getMessage();
+      if (message != null && !message.isBlank() && !parts.contains(message)) parts.add(message);
+      if (current.getCause() == current) break;
+    }
+    return parts.isEmpty() ? failure.getClass().getSimpleName() : String.join(" | ", parts);
   }
 
   private static String truncate(String value) {

@@ -51,4 +51,5 @@ hfg:
     server-private-key: ${HFG_RPC_SERVER_KEY:/etc/hfg/pki/manager.key}
     ca-certificate: ${HFG_RPC_CA:/etc/hfg/pki/ca.crt}
     ca-private-key: ${HFG_RPC_CA_KEY:/etc/hfg/pki/ca.key}
+    ca-private-key-password: ${HFG_RPC_CA_KEY_PASSWORD:}
     gateway-certificate-validity-days: ${HFG_GATEWAY_CERT_VALIDITY_DAYS:365}

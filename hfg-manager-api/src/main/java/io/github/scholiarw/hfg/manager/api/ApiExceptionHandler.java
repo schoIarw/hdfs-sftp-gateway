@@ -3,6 +3,7 @@ package io.github.scholiarw.hfg.manager.api;
 import io.github.scholiarw.hfg.contract.HfgException;
 import java.net.URI;
 import java.util.NoSuchElementException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,6 +24,18 @@ class ApiExceptionHandler {
   @ExceptionHandler({IllegalStateException.class, DataIntegrityViolationException.class})
   ProblemDetail conflict(Exception e) {
     return problem(HttpStatus.CONFLICT, "Conflicting update", e.getMessage());
+  }
+
+  @ExceptionHandler(DataAccessException.class)
+  ProblemDetail database(DataAccessException e) {
+    Throwable root = e.getMostSpecificCause();
+    var detail =
+        problem(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "数据库操作失败",
+            root == null ? e.getMessage() : root.getMessage());
+    detail.setProperty("code", "DATABASE_ERROR");
+    return detail;
   }
 
   @ExceptionHandler(HfgException.class)

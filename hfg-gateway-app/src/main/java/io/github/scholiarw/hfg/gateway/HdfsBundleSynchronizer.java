@@ -1,6 +1,7 @@
 package io.github.scholiarw.hfg.gateway;
 
 import io.github.scholiarw.hfg.control.GrpcControlClient;
+import io.github.scholiarw.hfg.storage.hdfs.HadoopConfigurationLoader;
 import java.io.*;
 import java.nio.file.*;
 import java.security.MessageDigest;
@@ -100,8 +101,7 @@ class HdfsBundleSynchronizer {
       Path installedKeytab = root.resolve(keytabRelative);
       List<String> installedXml =
           xmlRelative.stream().map(root::resolve).map(Path::toString).toList();
-      Configuration configuration = new Configuration(false);
-      installedXml.forEach(configuration::addResource);
+      Configuration configuration = HadoopConfigurationLoader.load(installedXml);
       String defaultFs = configuration.getTrimmed("fs.defaultFS");
       if (defaultFs == null || defaultFs.isBlank())
         throw new IllegalArgumentException("fs.defaultFS is missing");
