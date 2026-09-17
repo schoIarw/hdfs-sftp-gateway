@@ -51,16 +51,13 @@ class GatewayConfiguration {
   }
 
   @Bean
-  TransferEventSink transferEventSink(GatewayEventReporter reporter) {
-    return reporter::publish;
-  }
-
-  @Bean
   TransferService transferService(
       StorageClientFactory storage,
       PolicyEngine policy,
       TransferLimiter limiter,
-      TransferEventSink events) {
+      GatewayEventReporter events) {
+    // GatewayEventReporter already implements TransferEventSink; declaring an extra
+    // TransferEventSink bean made the injection ambiguous and prevented startup.
     return new TransferService(storage, policy, limiter, events);
   }
 
