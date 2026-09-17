@@ -10,6 +10,7 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.*;
 import java.util.*;
 import java.util.zip.*;
@@ -43,6 +44,7 @@ class GatewayCertificateService {
   private final Path caCertificate;
   private final Path caPrivateKey;
   private final String caPrivateKeyPassword;
+  private final String snapshotPublicKey;
   private final int validityDays;
 
   GatewayCertificateService(
@@ -50,17 +52,33 @@ class GatewayCertificateService {
       @Value("${hfg.rpc.ca-certificate:/etc/hfg/pki/ca.crt}") Path caCertificate,
       @Value("${hfg.rpc.ca-private-key:/etc/hfg/pki/ca.key}") Path caPrivateKey,
       @Value("${hfg.rpc.ca-private-key-password:}") String caPrivateKeyPassword,
+      @Value("${hfg.snapshot.signing-public-key-base64:}") String snapshotPublicKey,
       @Value("${hfg.rpc.gateway-certificate-validity-days:365}") int validityDays) {
     this.db = db;
     this.caCertificate = caCertificate;
     this.caPrivateKey = caPrivateKey;
     this.caPrivateKeyPassword = caPrivateKeyPassword == null ? "" : caPrivateKeyPassword;
+    this.snapshotPublicKey = snapshotPublicKey == null ? "" : snapshotPublicKey.trim();
     this.validityDays = validityDays;
   }
 
   Generated generate(String gatewayId, String serviceGroupId, String actor) throws Exception {
     if (!gatewayId.matches("[A-Za-z0-9][A-Za-z0-9._-]{1,127}"))
       throw new HfgException(HfgErrorCode.CONFIG_INVALID, "Gateway 标识不合法：" + gatewayId);
+    if (snapshotPublicKey.isBlank())
+      throw new HfgException(
+          HfgErrorCode.CONFIG_INVALID,
+          "Manager 未配置快照验签公钥；请先运行 hfg-bootstrap.jar 并加载 " + "/etc/hfg/hfg-manager-bootstrap.env");
+    try {
+      KeyFactory.getInstance("Ed25519")
+          .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(snapshotPublicKey)));
+    } catch (GeneralSecurityException | IllegalArgumentException exception) {
+      throw new HfgException(
+          HfgErrorCode.CONFIG_INVALID,
+          "HFG_SNAPSHOT_PUBLIC_KEY_BASE64 不是有效的 Ed25519 X.509 公钥",
+          null,
+          exception);
+    }
     db.sql("select count(*) from service_group where id=:id")
         .param("id", serviceGroupId)
         .query(Long.class)
@@ -124,7 +142,9 @@ class GatewayCertificateService {
         HexFormat.of()
             .formatHex(MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
     db.sql(
-            "insert into gateway_certificate(id,gateway_id,service_group_id,serial_number,fingerprint_sha256,not_before,not_after,status,created_by,created_at) values(:id,:gateway,:group,:serial,:fingerprint,:from,:until,'ACTIVE',:actor,:now)")
+            "insert into"
+                + " gateway_certificate(id,gateway_id,service_group_id,serial_number,fingerprint_sha256,not_before,not_after,status,created_by,created_at)"
+                + " values(:id,:gateway,:group,:serial,:fingerprint,:from,:until,'ACTIVE',:actor,:now)")
         .param("id", UUID.randomUUID())
         .param("gateway", gatewayId)
         .param("group", serviceGroupId)
@@ -136,7 +156,13 @@ class GatewayCertificateService {
         .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
     return new Generated(
-        zip(gatewayId, certificate, pair.getPrivate(), pem("CERTIFICATE", ca.getEncoded())),
+        zip(
+            gatewayId,
+            serviceGroupId,
+            snapshotPublicKey,
+            certificate,
+            pair.getPrivate(),
+            pem("CERTIFICATE", ca.getEncoded())),
         fingerprint,
         until);
   }
@@ -242,19 +268,46 @@ class GatewayCertificateService {
   }
 
   private static byte[] zip(
-      String gatewayId, X509Certificate certificate, PrivateKey key, byte[] ca) throws Exception {
+      String gatewayId,
+      String serviceGroupId,
+      String snapshotPublicKey,
+      X509Certificate certificate,
+      PrivateKey key,
+      byte[] ca)
+      throws Exception {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (ZipOutputStream zip = new ZipOutputStream(bytes, StandardCharsets.UTF_8)) {
       entry(zip, "gateway.crt", pem("CERTIFICATE", certificate.getEncoded()));
       entry(zip, "gateway.key", pem("PRIVATE KEY", key.getEncoded()));
       entry(zip, "ca.crt", ca);
+      String environment = gatewayEnvironment(gatewayId, serviceGroupId, snapshotPublicKey);
+      entry(zip, "hfg-gateway-bootstrap.env", environment.getBytes(StandardCharsets.US_ASCII));
       entry(
           zip,
           "README.txt",
-          ("Gateway: " + gatewayId + "\nInstall with mode 0600 and configure HFG_RPC_* paths.\n")
+          ("Gateway: "
+                  + gatewayId
+                  + "\nService group: "
+                  + serviceGroupId
+                  + "\nInstall *.crt/*.key under /etc/hfg/pki and install "
+                  + "hfg-gateway-bootstrap.env under /etc/hfg.\n")
               .getBytes(StandardCharsets.UTF_8));
     }
     return bytes.toByteArray();
+  }
+
+  static String gatewayEnvironment(
+      String gatewayId, String serviceGroupId, String snapshotPublicKey) {
+    return "HFG_GATEWAY_ID="
+        + gatewayId
+        + "\nHFG_SERVICE_GROUP_ID="
+        + serviceGroupId
+        + "\nHFG_RPC_CA=/etc/hfg/pki/ca.crt"
+        + "\nHFG_RPC_CLIENT_CERT=/etc/hfg/pki/gateway.crt"
+        + "\nHFG_RPC_CLIENT_KEY=/etc/hfg/pki/gateway.key\n"
+        + "HFG_SNAPSHOT_PUBLIC_KEY_BASE64="
+        + snapshotPublicKey
+        + "\n";
   }
 
   private static void entry(ZipOutputStream zip, String name, byte[] content) throws IOException {

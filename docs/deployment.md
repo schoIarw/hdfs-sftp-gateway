@@ -25,8 +25,9 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.3.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.3.jar` | FTP/SFTP Gateway |
+| `hfg-manager-api/target/hfg-manager-api-0.1.4.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.4.jar` | FTP/SFTP Gateway |
+| `hfg-common-contract/target/hfg-common-contract-0.1.4-bootstrap.jar` | 一键生成 CA、Manager 证书和快照密钥 |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：
@@ -58,6 +59,8 @@ sudo install -o hfg -g hfg -m 0550 \
   hfg-manager-api/target/hfg-manager-api-*.jar /opt/hfg/hfg-manager.jar
 sudo install -o hfg -g hfg -m 0550 \
   hfg-gateway-app/target/hfg-gateway-app-*.jar /opt/hfg/hfg-gateway.jar
+sudo install -o root -g hfg -m 0550 \
+  hfg-common-contract/target/hfg-common-contract-*-bootstrap.jar /opt/hfg/hfg-bootstrap.jar
 ```
 
 CentOS 7.9 使用 systemd 219 和 OpenSSL 1.0.2。应将独立 JDK 17 安装到 `/opt/hfg/jdk-17`，使用 `deploy/systemd/centos7/` 中的 unit；默认绑定 21/22 时执行 `setcap cap_net_bind_service=+ep /opt/hfg/jdk-17/bin/java`。不要对共享的 `/usr/bin/java` 授权，JDK 升级后需重新设置 capability。也可改用 2121/2222 避免 capability。
@@ -89,31 +92,36 @@ HFG_UUID_JDBC_TYPE=CHAR
 
 Manager 启动时由 Flyway 自动执行数据库迁移。生产发布前应备份数据库；迁移账号可在迁移完成后切换为满足运行期最小权限的账号。生产推荐单独创建 `hfg_logs` 数据库并通过 `HFG_LOGS_DB_URL` 接入；开发环境可留空并与管理表共库。
 
-### 3. 生成快照签名密钥
+### 3. 初始化 CA、Manager 证书和快照密钥
 
 ```bash
-sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
-sudo java -cp hfg-common-contract/target/hfg-common-contract-0.1.3.jar \
-  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
+sudo /opt/hfg/jdk-17/bin/java -jar /opt/hfg/hfg-bootstrap.jar \
+  --output /etc/hfg \
+  --server-name hfg-manager.example.com \
+  --server-ip 10.0.10.10
+sudo chown root:hfg /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
+sudo chmod 0640 /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
 ```
 
-将 `hfg-snapshot-manager.env` 中的值配置给 Manager，将 `hfg-snapshot-gateway.env` 中的值配置给所有 Gateway。工具使用 JDK 17 原生 Ed25519，不依赖 OpenSSL，并拒绝覆盖已有密钥。私钥必须由 Secret 管理系统保存，不得提交到仓库。
+工具使用 Java 一次生成 RSA CA、Manager 服务端证书和 Ed25519 快照密钥，不依赖 OpenSSL，
+并拒绝覆盖已有文件。完整的 CentOS 7/8 OpenSSL 备选流程和验证命令见
+[编译介质分步部署手册](package-deployment.md#341-centos-78-使用-openssl-手工生成-ca备选)。
 
 ### 4. 配置并启动 Manager
 
-复制模板并填写数据库密码、管理员密码和私钥：
+复制模板并填写数据库、管理员密码；证书密钥由单独的 bootstrap 文件提供：
 
 ```bash
 sudo install -o root -g hfg -m 0640 deploy/env/hfg-manager.env.example /etc/hfg/hfg-manager.env
 sudoedit /etc/hfg/hfg-manager.env
 ```
 
-如启用生产 gRPC（默认 19090），还需将 Manager 服务端证书、私钥、CA 证书及 CA PKCS#8 私钥放到 `/etc/hfg/pki`，并保持环境文件中的路径一致。CA 私钥只用于 Java 内部签发 Gateway 客户端证书。首次验证可先设置 `HFG_RPC_ENABLED=false`。
+systemd 会自动加载 `/etc/hfg/hfg-manager-bootstrap.env`。CA 私钥只用于 Java 内部签发 Gateway 客户端证书。
 
 前台试运行便于查看错误：
 
 ```bash
-sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; set +a; \
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; source /etc/hfg/hfg-manager-bootstrap.env; set +a; \
   exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
 ```
 
@@ -137,14 +145,19 @@ sudo install -o root -g hfg -m 0640 deploy/env/hfg-gateway.env.example /etc/hfg/
 sudoedit /etc/hfg/hfg-gateway.env
 ```
 
-先在管理页面“系统管理”上传 HDFS ZIP；Manager 会自动读取 keytab principal 和 XML。然后按 Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.key` 和 `ca.crt` 安装到 Gateway 的 `/etc/hfg/pki`。整个签发过程由 Java 完成，不调用 openssl。
+先在管理页面“系统管理”上传 HDFS ZIP；Manager 会自动读取 keytab principal 和 XML。然后按
+Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.key`、`ca.crt` 安装到
+Gateway 的 `/etc/hfg/pki`，并把 `hfg-gateway-bootstrap.env` 安装到 `/etc/hfg/`。
+整个签发过程由 Java 完成，不调用 openssl。
 
-同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID`、`HFG_NODE_IP` 和客户端证书应按节点设置。服务组 VIP 由 Manager 通过 mTLS gRPC 下发，用于 FTP PASV 响应，无需在 Gateway 重复配置。Gateway 不再配置 Manager HTTP 用户名/密码、Hadoop XML、keytab、principal 或 HDFS 用户；启动后凭客户端证书完成全部控制面通信。证书 CN、`HFG_GATEWAY_ID` 及证书登记的服务组必须一致。
+Gateway 主配置只需人工填写 `HFG_RPC_HOST` 和 `HFG_NODE_IP`。节点 ID、服务组、快照公钥和
+证书路径来自下载的 bootstrap 文件。服务组 VIP 由 Manager 下发，无需在 Gateway 重复配置。
+同组两台节点仍须安全共享同一份 SFTP host key，避免 VIP 切换后主机指纹变化。
 
 直接前台运行：
 
 ```bash
-sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-gateway.env; set +a; \
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-gateway.env; source /etc/hfg/hfg-gateway-bootstrap.env; set +a; \
   exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-gateway.jar'
 ```
 
@@ -219,7 +232,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ### 3. 构建并运行 Gateway 镜像
 
 ```bash
-docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.3 .
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.4 .
 ```
 
 FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
@@ -228,9 +241,10 @@ FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推
 docker run -d --name hfg-gateway --restart unless-stopped \
   --network host \
   --env-file /etc/hfg/hfg-gateway.env \
+  --env-file /etc/hfg/hfg-gateway-bootstrap.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.3
+  hfg-gateway:0.1.4
 ```
 
 镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。

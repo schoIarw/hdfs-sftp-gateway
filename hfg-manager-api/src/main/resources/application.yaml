@@ -33,6 +33,7 @@ hfg:
       password: ${HFG_ADMIN_PASSWORD}
   snapshot:
     signing-private-key-base64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:}
+    signing-public-key-base64: ${HFG_SNAPSHOT_PUBLIC_KEY_BASE64:}
   prometheus:
     base-url: ${HFG_PROMETHEUS_URL:http://127.0.0.1:9090}
   logs:

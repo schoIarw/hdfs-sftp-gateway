@@ -8,6 +8,7 @@ Type=simple
 User=hfg
 Group=hfg
 EnvironmentFile=/etc/hfg/hfg-manager.env
+EnvironmentFile=-/etc/hfg/hfg-manager-bootstrap.env
 ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar
 Restart=on-failure
 RestartSec=5

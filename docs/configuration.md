@@ -11,13 +11,17 @@ java -jar /opt/hfg/hfg-manager.jar \
 
 ## Gateway 最小配置
 
+Gateway 主配置文件 `/etc/hfg/hfg-gateway.env` 只需填写两个现场值：
+
 | 环境变量 | 用途 | 示例 |
 |---|---|---|
-| HFG_GATEWAY_ID | 全局唯一节点 ID | hfg-gateway-a01 |
-| HFG_SERVICE_GROUP_ID | 固定服务组 | group-a |
-| HFG_SNAPSHOT_PUBLIC_KEY_BASE64 | Ed25519 X.509 公钥 Base64 | Secret 注入 |
-| HFG_RPC_HOST | Manager gRPC/VIP | hfg-manager.internal |
-| HFG_NODE_IP | 心跳上报的节点服务 IP | 10.0.10.11 |
+| HFG_RPC_HOST | Manager gRPC 地址，必须能通过服务端证书 SAN 校验 | hfg-manager.internal |
+| HFG_NODE_IP | 心跳上报的本节点 FTP/SFTP 服务 IP | 10.0.10.11 |
+
+Manager 生成的每节点证书 ZIP 同时包含 `hfg-gateway-bootstrap.env`。它自动提供
+`HFG_GATEWAY_ID`、`HFG_SERVICE_GROUP_ID`、`HFG_SNAPSHOT_PUBLIC_KEY_BASE64` 和三个证书路径。
+将该文件原样安装到 `/etc/hfg/hfg-gateway-bootstrap.env`；systemd 会在主配置之后加载它。
+手工启动或 Docker 启动时也必须同时加载这两个环境文件。
 
 Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输事件、申请精确配额，不再配置 Manager HTTP URL、用户名或密码。FTP PASV 对外地址由 Manager 根据 `HFG_SERVICE_GROUP_ID` 下发服务组 VIP；节点角色固定上报为 `SERVING`，实际流量归属由 Keepalived 决定。
 
@@ -30,12 +34,17 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | HFG_RPC_CA | `/etc/hfg/pki/ca.crt`，校验 Manager 身份 |
 | HFG_RPC_CLIENT_CERT | `/etc/hfg/pki/gateway.crt`，证明 Gateway 身份和服务组授权 |
 | HFG_RPC_CLIENT_KEY | `/etc/hfg/pki/gateway.key`，客户端证书私钥 |
-| HFG_SFTP_HOST_KEY | `/etc/hfg/ssh_host_ed25519_key`，SFTP 服务端主机身份；同组节点应保持一致 |
+| HFG_SFTP_HOST_KEY | 默认 `/etc/hfg/ssh_host_ed25519_key`；启用 SFTP 时文件必须存在且可读，同组节点必须一致 |
 | HFG_HDFS_RUNTIME_PATH | `/var/lib/hfg/hdfs-runtime`，Manager 下发的 HDFS 配置落盘目录 |
 | HFG_HDFS_REFRESH_INTERVAL | `PT1M`，检查 HDFS 配置包更新的周期 |
 | HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | `127.0.0.1:18080`，Gateway 自身 readiness/Prometheus 端口，不是 Manager 地址 |
 | HFG_FTP_PORT / HFG_SFTP_PORT | `21` / `22` |
 | HFG_FTP_PASSIVE_PORTS | `30000-31000` |
+| HFG_SNAPSHOT_PATH / HFG_EVENT_WAL_PATH | `/var/lib/hfg/snapshot.json` / `/var/lib/hfg/events.wal` |
+| HFG_EVENT_REPORT_INTERVAL / HFG_HEARTBEAT_INTERVAL | `PT5S` / `PT10S`，ISO-8601 Duration |
+| HFG_FTP_ENABLED / HFG_SFTP_ENABLED | 均为 `true`；不用某协议时可关闭 |
+| HFG_FTP_BIND / HFG_SFTP_BIND | 均为 `0.0.0.0` |
+| HFG_FTP_ACTIVE_MODE / HFG_FTP_IDLE_TIMEOUT | `false` / `300` 秒 |
 
 主机名由操作系统自动获取，软件版本从 JAR Manifest 自动读取。`HFG_ROLE`、`HFG_VIP`、`HFG_MANAGER_URL`、`HFG_MANAGER_USERNAME`、`HFG_MANAGER_PASSWORD`、`HFG_SOFTWARE_VERSION` 和 `HFG_RPC_HOSTNAME` 已取消。
 
@@ -49,7 +58,7 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | FTP PASV | 30000-31000 | 防火墙和 Keepalived 两端一致 |
 | Manager gRPC | 19090 | 网关到 Manager |
 
-## Manager 必填项
+## Manager 参数
 
 | 环境变量 | 用途 |
 |---|---|
@@ -60,30 +69,56 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | HFG_LOGS_DB_POOL_SIZE | 日志库连接池上限，默认 10 |
 | HFG_LOGS_RETENTION_DAYS | UTC 日分区保留天数，默认 180 |
 | HFG_LOGS_PRECREATE_DAYS | 预建未来日分区数，默认 7 |
-| HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员 |
-| HFG_SNAPSHOT_PRIVATE_KEY_BASE64 | Ed25519 PKCS#8 私钥 Base64 |
-| HFG_RPC_SERVER_CERT / HFG_RPC_SERVER_KEY / HFG_RPC_CA | gRPC 双向 TLS |
-| HFG_RPC_CA_KEY | 签发 Gateway 客户端证书的 CA PKCS#8 私钥 |
+| HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员；用户名默认 `admin`，密码必填 |
 | HFG_GATEWAY_CERT_VALIDITY_DAYS | Gateway 证书有效天数，默认 365 |
 | HFG_HDFS_BUNDLE_PATH | HDFS ZIP 与安全解压内容保存目录 |
 | HFG_PROMETHEUS_URL | 固定 Prometheus 服务地址 |
 | HFG_MANAGER_PORT | Manager 页面与 REST API 端口，默认 8080 |
+| HFG_DB_POOL_SIZE / HFG_DB_MIN_IDLE | 管理库连接池，默认 `20` / `2` |
+| HFG_RPC_ENABLED / HFG_RPC_PORT | 默认 `true` / `19090`；仅本地演示可关闭 RPC |
+| HFG_RPC_CA_KEY_PASSWORD | 仅外部 CA 私钥为加密 PEM 时配置；一键工具生成的私钥无需配置 |
+
+其中真正必须人工填写的是数据库连接和初始管理员密码；独立日志库和 Prometheus 地址按部署选择填写。
+`HFG_GATEWAY_CERT_VALIDITY_DAYS`、`HFG_HDFS_BUNDLE_PATH`、连接池、保留期和端口均有默认值。
+`HFG_SNAPSHOT_PRIVATE_KEY_BASE64`、`HFG_SNAPSHOT_PUBLIC_KEY_BASE64`、`HFG_RPC_SERVER_CERT`、
+`HFG_RPC_SERVER_KEY`、`HFG_RPC_CA`、`HFG_RPC_CA_KEY` 由初始化工具写入单独的
+`/etc/hfg/hfg-manager-bootstrap.env`，不要复制到主配置文件。
 
 HDFS 接入只接受最大 32 MiB 的 ZIP，包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、限制解压后总体积、忽略其他文件，从 keytab 自动读取 principal，并保存 SHA-256。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
 
 Gateway 不配置 HDFS URI、XML、principal 或 keytab。它通过 Manager mTLS gRPC 控制通道按服务组取得配置包，落盘到 `HFG_HDFS_RUNTIME_PATH` 后热更新 HDFS 客户端。客户端证书 CN、请求中的 Gateway ID 和证书登记的服务组必须一致，无需为 HDFS 包分发配置额外账号。Manager REST 仍须置于 HTTPS 反向代理和管理网访问控制之后。
 
-## Ed25519 快照密钥
+## Manager 安全材料一键初始化
 
-使用发布介质内的纯 Java 工具生成初始密钥；该方式依赖 JDK 17 自带的 Ed25519 实现，兼容 CentOS 7.9 自带 OpenSSL 1.0.2 不支持 Ed25519 的环境：
+使用 Native 介质内的纯 Java 工具，一次生成 RSA 3072 位 CA、Manager 服务端证书和
+Ed25519 快照签名密钥；不调用 OpenSSL，兼容 CentOS 7/8：
 
 ```bash
-sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
-sudo /opt/hfg/jdk-17/bin/java -cp bin/hfg-keytool.jar \
-  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
+sudo /opt/hfg/jdk-17/bin/java -jar /opt/hfg/hfg-bootstrap.jar \
+  --output /etc/hfg \
+  --server-name hfg-manager.example.com \
+  --server-ip 10.0.10.10
+sudo chown root:hfg /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
+sudo chmod 0640 /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
 ```
 
-工具生成 `hfg-snapshot-manager.env`（私钥，0600）和 `hfg-snapshot-gateway.env`（公钥，0644），且拒绝覆盖已有文件。将对应文件中的值写入 Manager/Gateway 环境配置；私钥需进入 Secret 管理系统，不要提交生成文件或 Base64 值。命令只输出公钥指纹，不输出私钥。
+`--server-name` 和可选的 `--server-ip` 会写入 Manager 证书 SAN，Gateway 的
+`HFG_RPC_HOST`/`HFG_RPC_SERVER_NAME` 必须匹配其中之一。工具拒绝覆盖已有文件，避免误换 CA；
+私钥及 bootstrap 环境文件不得提交到仓库。`hfg-gateway-bootstrap.env` 是快照公钥模板，
+实际节点应使用 Manager 生成证书 ZIP 内同名文件，因为它还带有节点和服务组身份。
+
+SFTP host key 不纳入每节点自动生成：同一 VIP 服务组的两台 Gateway 必须共享同一个 host key，
+否则切换后客户端会报告主机指纹变化。应在第一台生成一次，再通过安全渠道复制到同组另一台。
+
+## 参数精简结论
+
+| 类别 | 人工配置 | 自动生成或自动发现 |
+|---|---|---|
+| Manager | 数据库、管理员密码；可选日志库/Prometheus | CA、Manager 证书、快照密钥；端口和路径使用默认值 |
+| Gateway | `HFG_RPC_HOST`、`HFG_NODE_IP` | 节点 ID、服务组、证书路径、快照公钥；主机名和版本自动发现 |
+| 服务组 | VIP、Keepalived VRID/优先级 | Gateway 不再配置角色或 VIP |
+| HDFS | Manager 页面上传 XML/keytab ZIP | principal、HDFS URI、摘要和运行文件自动提取/下发 |
+| SFTP | 每服务组生成并安全共享一份 host key | 不允许各节点静默生成不同指纹 |
 
 ## Keepalived
 

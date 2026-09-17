@@ -23,7 +23,7 @@ public final class SnapshotKeyTool {
   public static void main(String[] args) throws Exception {
     if (args.length != 1 || "--help".equals(args[0]) || "-h".equals(args[0])) {
       System.err.println(
-          "Usage: java -cp hfg-keytool.jar "
+          "Usage: java -cp hfg-bootstrap.jar "
               + SnapshotKeyTool.class.getName()
               + " <output-directory>");
       System.exit(args.length == 1 ? 0 : 2);

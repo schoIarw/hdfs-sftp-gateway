@@ -1,4 +1,4 @@
-# HFG 0.1.3 Linux x86_64 编译介质部署手册
+# HFG 0.1.4 Linux x86_64 编译介质部署手册
 
 本文只使用发布页下载的编译后介质部署，不要求目标服务器具有源码、Git、Maven、Node.js 或 npm。HFG 分为两个进程：
 
@@ -9,8 +9,8 @@ Native 与 Docker 分别提供独立、自包含的压缩包，不再提供混�
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-0.1.3-linux-x86_64-native.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus 和文档，不含 Docker 镜像 |
-| `hfg-0.1.3-linux-x86_64-docker.tar.gz` | Docker 镜像、Compose、配置、Keepalived、Prometheus 和文档，不含 Manager/Gateway Native JAR |
+| `hfg-0.1.4-linux-x86_64-native.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus 和文档，不含 Docker 镜像 |
+| `hfg-0.1.4-linux-x86_64-docker.tar.gz` | Docker 镜像、Compose、配置、Keepalived、Prometheus 和文档，不含 Manager/Gateway Native JAR |
 | `SHA256SUMS` | 两个介质的 SHA-256 校验值 |
 | `bom.json` | CycloneDX SBOM |
 
@@ -20,12 +20,12 @@ Native 与 Docker 分别提供独立、自包含的压缩包，不再提供混�
 mkdir -p /tmp/hfg-install
 cd /tmp/hfg-install
 
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.3/hfg-0.1.3-linux-x86_64-native.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.3/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.4/hfg-0.1.4-linux-x86_64-native.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.4/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 
-tar -xzf hfg-0.1.3-linux-x86_64-native.tar.gz
-cd hfg-0.1.3-linux-x86_64-native
+tar -xzf hfg-0.1.4-linux-x86_64-native.tar.gz
+cd hfg-0.1.4-linux-x86_64-native
 uname -m
 cat RELEASE-INFO.txt
 ```
@@ -35,7 +35,7 @@ cat RELEASE-INFO.txt
 解压后的目录：
 
 ```text
-bin/          Manager/Gateway 可执行 JAR 与 Java 密钥工具
+bin/          Manager/Gateway 可执行 JAR 与 Java 初始化工具
 config/       Manager/Gateway 环境变量模板
 systemd/      systemd unit
 keepalived/   主备切换配置和脚本
@@ -137,15 +137,27 @@ Manager 主机：
 
 ```bash
 sudo install -o hfg -g hfg -m 0550 bin/hfg-manager.jar /opt/hfg/hfg-manager.jar
-sudo install -o root -g hfg -m 0550 bin/hfg-keytool.jar /opt/hfg/hfg-keytool.jar
-sudo install -o root -g root -m 0644 systemd/hfg-manager.service /etc/systemd/system/
+sudo install -o root -g hfg -m 0550 bin/hfg-bootstrap.jar /opt/hfg/hfg-bootstrap.jar
 ```
 
 每台 Gateway：
 
 ```bash
 sudo install -o hfg -g hfg -m 0550 bin/hfg-gateway.jar /opt/hfg/hfg-gateway.jar
+```
+
+CentOS 8/RHEL 8+/Rocky/AlmaLinux 及常规现代发行版安装通用 unit：
+
+```bash
+sudo install -o root -g root -m 0644 systemd/hfg-manager.service /etc/systemd/system/
 sudo install -o root -g root -m 0644 systemd/hfg-gateway.service /etc/systemd/system/
+```
+
+CentOS 7 只安装兼容 unit，不要再用通用 unit 覆盖：
+
+```bash
+sudo install -o root -g root -m 0644 systemd/centos7/hfg-manager.service /etc/systemd/system/hfg-manager.service
+sudo install -o root -g root -m 0644 systemd/centos7/hfg-gateway.service /etc/systemd/system/hfg-gateway.service
 ```
 
 ### 3.3 创建管理库和日志库
@@ -172,17 +184,161 @@ GRANT ALL PRIVILEGES ON hfg_logs.* TO 'hfg'@'%';
 
 日志库账号必须具有建表、建索引和分区 DDL 权限。生产升级前同时备份 `hfg` 与 `hfg_logs`。如不使用独立日志库，可将 `HFG_LOGS_DB_URL` 留空。
 
-### 3.4 生成配置快照签名密钥
+### 3.4 一键初始化 CA、Manager 证书和快照密钥（推荐）
 
-配置快照使用 Ed25519 签名。只在安全的 Manager 管理机执行：
+只在安全的 Manager 主机执行一次。`--server-name` 和 `--server-ip` 必须是 Gateway 实际访问
+Manager 时使用的 DNS 名/IP，它们会写入服务端证书 SAN：
 
 ```bash
-sudo install -d -o root -g hfg -m 0750 /etc/hfg/keys
-sudo java -cp /opt/hfg/hfg-keytool.jar \
-  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/keys
+sudo /opt/hfg/jdk-17/bin/java -jar /opt/hfg/hfg-bootstrap.jar \
+  --output /etc/hfg \
+  --server-name hfg-manager.example.com \
+  --server-ip 10.0.10.10
+
+sudo chown root:hfg /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
+sudo chmod 0640 /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
+sudo chmod 0644 /etc/hfg/pki/*.crt
 ```
 
-工具依靠 JDK 17 原生 Ed25519，不调用 OpenSSL，适用于 CentOS 7.9。它生成 `hfg-snapshot-manager.env`（私钥，0600）与 `hfg-snapshot-gateway.env`（公钥，0644），拒绝覆盖已有文件，终端只显示公钥指纹。把文件中的变量分别合并到 Manager 与所有 Gateway 的环境文件；私钥必须存入 Secret 管理系统，不能进入代码仓库或普通备份。
+工具使用 Java 密码学 API，生成 RSA 3072 位 CA、RSA 3072 位 Manager 证书、Ed25519 快照密钥，
+以及 `/etc/hfg/hfg-manager-bootstrap.env`。它不调用 OpenSSL，适用于 CentOS 7/8，并拒绝覆盖
+已有文件，防止误换 CA。CA 私钥和快照私钥必须进入受控备份或 Secret 管理系统。
+
+验证生成结果：
+
+```bash
+sudo test -r /etc/hfg/pki/ca.crt -a -r /etc/hfg/pki/manager.crt
+openssl verify -CAfile /etc/hfg/pki/ca.crt /etc/hfg/pki/manager.crt
+openssl x509 -in /etc/hfg/pki/ca.crt -noout -subject -fingerprint -sha256
+openssl x509 -in /etc/hfg/pki/manager.crt -noout -subject -issuer -dates
+openssl x509 -in /etc/hfg/pki/manager.crt -noout -text | grep -A2 'Subject Alternative Name'
+sudo awk -F= '/^HFG_(SNAPSHOT_PRIVATE_KEY|RPC_CA_KEY)=/{print $1"=<configured>"}' \
+  /etc/hfg/hfg-manager-bootstrap.env
+```
+
+第一条 `openssl verify` 必须输出 `OK`，SAN 必须包含 Gateway 使用的 Manager 地址。
+
+#### 3.4.1 CentOS 7/8 使用 OpenSSL 手工生成 CA（备选）
+
+推荐优先使用上一节 Java 一键初始化。仅在安全规范要求由 OpenSSL/外部 PKI 管理 CA 时使用本节。
+HFG 的 RPC CA 和 Manager 证书使用 RSA，不使用 Ed25519，因此兼容 CentOS 7.9 的 OpenSSL 1.0.2。
+快照签名仍由 Java 生成 Ed25519 密钥，不能在 CentOS 7 上执行
+`openssl genpkey -algorithm ED25519`。
+
+CentOS 7 安装并确认版本：
+
+```bash
+sudo yum install -y openssl
+openssl version
+# 预期为 OpenSSL 1.0.2k-fips 或同系列版本
+```
+
+CentOS 8/Rocky 8/AlmaLinux 8 安装并确认版本：
+
+```bash
+sudo dnf install -y openssl
+openssl version
+# 通常为 OpenSSL 1.1.1 系列
+```
+
+以下生成命令同时兼容 CentOS 7 和 8。只在 Manager 主机执行；示例地址必须替换：
+
+```bash
+sudo install -d -o root -g hfg -m 0750 /etc/hfg/pki
+sudo sh -c 'umask 077; openssl genrsa 3072 | openssl pkcs8 -topk8 -nocrypt -out /etc/hfg/pki/ca.key'
+
+sudo tee /etc/hfg/pki/ca.cnf >/dev/null <<'EOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3_ca
+prompt = no
+[dn]
+C = CN
+O = HFG
+OU = HFG RPC
+CN = HFG RPC Root CA
+[v3_ca]
+basicConstraints = critical,CA:true,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+EOF
+
+sudo openssl req -new -x509 -sha256 -days 3650 \
+  -key /etc/hfg/pki/ca.key \
+  -out /etc/hfg/pki/ca.crt \
+  -config /etc/hfg/pki/ca.cnf
+
+sudo sh -c 'umask 077; openssl genrsa 3072 | openssl pkcs8 -topk8 -nocrypt -out /etc/hfg/pki/manager.key'
+
+sudo tee /etc/hfg/pki/manager.cnf >/dev/null <<'EOF'
+[req]
+distinguished_name = dn
+req_extensions = server_ext
+prompt = no
+[dn]
+C = CN
+O = HFG
+OU = HFG Manager
+CN = hfg-manager.example.com
+[server_ext]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @san
+[san]
+DNS.1 = hfg-manager.example.com
+IP.1 = 10.0.10.10
+EOF
+
+sudo openssl req -new -sha256 \
+  -key /etc/hfg/pki/manager.key \
+  -out /etc/hfg/pki/manager.csr \
+  -config /etc/hfg/pki/manager.cnf
+sudo openssl x509 -req -sha256 -days 825 \
+  -in /etc/hfg/pki/manager.csr \
+  -CA /etc/hfg/pki/ca.crt \
+  -CAkey /etc/hfg/pki/ca.key \
+  -CAcreateserial \
+  -out /etc/hfg/pki/manager.crt \
+  -extfile /etc/hfg/pki/manager.cnf \
+  -extensions server_ext
+
+sudo rm -f /etc/hfg/pki/manager.csr /etc/hfg/pki/ca.srl
+sudo chown root:hfg /etc/hfg/pki/ca.key /etc/hfg/pki/manager.key
+sudo chmod 0640 /etc/hfg/pki/ca.key /etc/hfg/pki/manager.key
+sudo chmod 0644 /etc/hfg/pki/ca.crt /etc/hfg/pki/manager.crt
+```
+
+验证证书用途、链路、SAN 和公私钥匹配：
+
+```bash
+openssl verify -CAfile /etc/hfg/pki/ca.crt /etc/hfg/pki/manager.crt
+openssl x509 -in /etc/hfg/pki/ca.crt -noout -text | grep -A2 'Basic Constraints'
+openssl x509 -in /etc/hfg/pki/manager.crt -noout -text | grep -A2 'Subject Alternative Name'
+openssl x509 -in /etc/hfg/pki/manager.crt -pubkey -noout | openssl dgst -sha256
+openssl pkey -in /etc/hfg/pki/manager.key -pubout | openssl dgst -sha256
+```
+
+CentOS 7 若不支持 `openssl pkey`，最后一条改为：
+
+```bash
+openssl rsa -in /etc/hfg/pki/manager.key -pubout | openssl dgst -sha256
+```
+
+证书链应输出 `OK`；CA 必须显示 `CA:TRUE`；Manager SAN 必须包含实际访问地址；最后两条
+SHA-256 值必须一致。手工生成时仍需创建 `/etc/hfg/hfg-manager-bootstrap.env` 并写入上述四个
+PKI 路径，同时使用介质中的 Java 工具生成快照签名密钥：
+
+```bash
+sudo /opt/hfg/jdk-17/bin/java -cp /opt/hfg/hfg-bootstrap.jar \
+  io.github.scholiarw.hfg.contract.SnapshotKeyTool /etc/hfg/snapshot-key
+sudo sh -c 'umask 027; cat /etc/hfg/snapshot-key/hfg-snapshot-manager.env /etc/hfg/snapshot-key/hfg-snapshot-gateway.env > /etc/hfg/hfg-manager-bootstrap.env; printf "%s\n" "HFG_RPC_SERVER_CERT=/etc/hfg/pki/manager.crt" "HFG_RPC_SERVER_KEY=/etc/hfg/pki/manager.key" "HFG_RPC_CA=/etc/hfg/pki/ca.crt" "HFG_RPC_CA_KEY=/etc/hfg/pki/ca.key" >> /etc/hfg/hfg-manager-bootstrap.env'
+sudo chown root:hfg /etc/hfg/hfg-manager-bootstrap.env
+sudo chmod 0640 /etc/hfg/hfg-manager-bootstrap.env
+```
+
+除非接入外部 PKI，建议使用 3.4 的一键命令，避免漏配扩展用途或 SAN。
 
 ### 3.5 配置 Manager
 
@@ -204,8 +360,6 @@ HFG_LOGS_DB_USERNAME=hfg
 HFG_LOGS_DB_PASSWORD=REPLACE_WITH_STRONG_PASSWORD
 HFG_ADMIN_USERNAME=admin
 HFG_ADMIN_PASSWORD=REPLACE_WITH_ADMIN_PASSWORD
-HFG_MANAGER_PORT=8080
-HFG_SNAPSHOT_PRIVATE_KEY_BASE64=REPLACE_WITH_PKCS8_DER_BASE64
 ```
 
 MySQL 必须改为：
@@ -217,25 +371,16 @@ HFG_UUID_JDBC_TYPE=CHAR
 HFG_LOGS_DB_URL=jdbc:mysql://db.example.com:3306/hfg_logs?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
 ```
 
-首次验证可设置 `HFG_RPC_ENABLED=false`。确认数据库和管理页面正常后，再配置生产 gRPC mTLS：
-
-```ini
-HFG_RPC_ENABLED=true
-HFG_RPC_PORT=19090
-HFG_RPC_SERVER_CERT=/etc/hfg/pki/manager.crt
-HFG_RPC_SERVER_KEY=/etc/hfg/pki/manager.key
-HFG_RPC_CA=/etc/hfg/pki/ca.crt
-HFG_RPC_CA_KEY=/etc/hfg/pki/ca.key
-```
-
-`manager.crt` 必须包含 Gateway 配置的 `HFG_RPC_SERVER_NAME` 对应 DNS SAN。`ca.key` 为 PKCS#8 私钥，只供 Manager 内置 Java 证书签发逻辑使用，权限应为 `0640 root:hfg`。Gateway 客户端证书由管理页面生成并下载，不调用 openssl。
+证书和密钥变量不再写入主配置；3.4 生成的 `/etc/hfg/hfg-manager-bootstrap.env` 自动提供。
+`manager.crt` 必须包含 Gateway 配置的 `HFG_RPC_HOST` 或 `HFG_RPC_SERVER_NAME` 对应 SAN。
+`ca.key` 只供 Manager 内置 Java 逻辑签发 Gateway 客户端证书。Gateway 客户端证书由管理页面生成下载。
 
 ### 3.6 首次启动 Manager
 
 先前台启动以观察迁移错误：
 
 ```bash
-sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; set +a; exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; source /etc/hfg/hfg-manager-bootstrap.env; set +a; exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
 ```
 
 确认启动正常后按 `Ctrl+C` 停止，启用 systemd：
@@ -265,7 +410,9 @@ krb5.conf（如环境需要随包下发）
 
 ### 3.8 生成和安装 Gateway 证书
 
-在“系统管理 → Gateway 节点”中为每个节点填写唯一 Gateway ID、所属服务组、节点 IP、FTP/SFTP/管理端口和证书有效期，然后生成并下载证书 ZIP。Manager 使用 Java 密码学 API 签发，ZIP 包包含 `gateway.crt`、`gateway.key` 和 `ca.crt`。
+在“系统管理 → Gateway 节点”中为每个节点填写唯一 Gateway ID 和所属服务组，然后生成并下载证书 ZIP。
+Manager 使用 Java 密码学 API 签发，ZIP 包包含 `gateway.crt`、`gateway.key`、`ca.crt`、
+`hfg-gateway-bootstrap.env` 和安装说明。
 
 在对应 Gateway 节点执行：
 
@@ -273,6 +420,7 @@ krb5.conf（如环境需要随包下发）
 sudo install -o root -g hfg -m 0640 gateway.crt /etc/hfg/pki/gateway.crt
 sudo install -o root -g hfg -m 0640 gateway.key /etc/hfg/pki/gateway.key
 sudo install -o root -g hfg -m 0640 ca.crt /etc/hfg/pki/ca.crt
+sudo install -o root -g hfg -m 0640 hfg-gateway-bootstrap.env /etc/hfg/hfg-gateway-bootstrap.env
 ```
 
 证书 CN、`HFG_GATEWAY_ID`、生成证书时选择的服务组必须一致。
@@ -284,23 +432,15 @@ sudo install -o root -g hfg -m 0640 config/hfg-gateway.env.example /etc/hfg/hfg-
 sudo vi /etc/hfg/hfg-gateway.env
 ```
 
-Active/Standby 两台相同的关键配置：
+每台节点的主配置只需两个现场值：
 
 ```ini
-HFG_SERVICE_GROUP_ID=group-a
 HFG_RPC_HOST=hfg-manager.example.com
-HFG_SNAPSHOT_PUBLIC_KEY_BASE64=REPLACE_WITH_MANAGER_PUBLIC_KEY
-HFG_FTP_PORT=21
-HFG_SFTP_PORT=22
-HFG_FTP_PASSIVE_PORTS=30000-31000
-```
-
-每个节点不同：
-
-```ini
-HFG_GATEWAY_ID=hfg-gateway-a01
 HFG_NODE_IP=10.0.10.11
 ```
+
+ID、服务组、快照公钥和证书路径均由上一步的 `hfg-gateway-bootstrap.env` 提供。
+FTP/SFTP/被动端口和本地管理端口都有默认值，只有现场不同才覆盖。
 
 证书和运行目录均使用约定默认路径，只有路径变化时才覆盖 `HFG_RPC_CA`、`HFG_RPC_CLIENT_CERT`、`HFG_RPC_CLIENT_KEY`、`HFG_SFTP_HOST_KEY` 或 `HFG_HDFS_RUNTIME_PATH`。`HFG_RPC_SERVER_NAME` 默认等于 `HFG_RPC_HOST`，仅在连接地址与证书 SAN 名称不同时设置。服务组 VIP 由 Manager 下发；主机名和软件版本由程序自动获取；不再配置角色、Manager HTTP 地址或管理账号密码。
 
@@ -317,6 +457,12 @@ sudo chmod 0640 /etc/hfg/ssh_host_ed25519_key
 在第一台生成后，通过安全渠道复制到同组 Standby。
 
 ### 3.10 启动 Gateway
+
+首次前台验证时同时加载两个环境文件：
+
+```bash
+sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-gateway.env; source /etc/hfg/hfg-gateway-bootstrap.env; set +a; exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-gateway.jar'
+```
 
 ```bash
 sudo systemctl daemon-reload
@@ -375,15 +521,15 @@ Docker 方式使用发布页提供的已编译 amd64 镜像，目标机不进行
 
 ```bash
 cd /tmp/hfg-install
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.3/hfg-0.1.3-linux-x86_64-docker.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.3/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.4/hfg-0.1.4-linux-x86_64-docker.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.4/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
-tar -xzf hfg-0.1.3-linux-x86_64-docker.tar.gz
-cd hfg-0.1.3-linux-x86_64-docker
+tar -xzf hfg-0.1.4-linux-x86_64-docker.tar.gz
+cd hfg-0.1.4-linux-x86_64-docker
 docker load -i images/hfg-images.tar
 
-docker image inspect hfg-manager:0.1.3 --format '{{.Os}}/{{.Architecture}}'
-docker image inspect hfg-gateway:0.1.3 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-manager:0.1.4 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-gateway:0.1.4 --format '{{.Os}}/{{.Architecture}}'
 ```
 
 两条命令都应输出 `linux/amd64`。镜像包只包含 HFG 镜像及 JRE 基础层；Compose 中 PostgreSQL、MySQL、Prometheus 镜像仍需从镜像仓库获取，完全离线环境应提前另行导入这些第三方镜像。
@@ -393,11 +539,11 @@ docker image inspect hfg-gateway:0.1.3 --format '{{.Os}}/{{.Architecture}}'
 PostgreSQL：
 
 ```bash
-cd /tmp/hfg-install/hfg-0.1.3-linux-x86_64-docker
-export HFG_VERSION=0.1.3
+cd /tmp/hfg-install/hfg-0.1.4-linux-x86_64-docker
+export HFG_VERSION=0.1.4
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
-export HFG_SNAPSHOT_PRIVATE_KEY_BASE64='<PKCS8_DER_BASE64>'
+# 演示栈关闭 gRPC；如需发布配置快照，先按 3.4 生成并 source bootstrap 文件
 docker compose -f docker/compose.postgresql.yaml up -d
 docker compose -f docker/compose.postgresql.yaml ps
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
@@ -406,7 +552,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 MySQL：
 
 ```bash
-export HFG_VERSION=0.1.3
+export HFG_VERSION=0.1.4
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_MYSQL_ROOT_PASSWORD='REPLACE_WITH_ROOT_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
@@ -418,7 +564,20 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 
 ### 4.3 生产运行 Manager 容器
 
-按 Native 章节准备 `/etc/hfg/hfg-manager.env`、`/etc/hfg/pki` 和 `/var/lib/hfg`。容器使用固定 UID/GID 10001，挂载目录需显式授权：
+Docker 介质的 `tools/hfg-bootstrap.jar` 可直接借用 Manager 镜像内的 JRE 完成一键初始化，
+宿主机不必另装 Java：
+
+```bash
+sudo install -d -m 0750 /etc/hfg /var/lib/hfg
+docker run --rm --user 0:0 --entrypoint java \
+  -v "$PWD/tools/hfg-bootstrap.jar:/tool.jar:ro" \
+  -v /etc/hfg:/etc/hfg \
+  hfg-manager:0.1.4 \
+  -jar /tool.jar --output /etc/hfg \
+  --server-name hfg-manager.example.com --server-ip 10.0.10.10
+```
+
+按 Native 章节准备 `/etc/hfg/hfg-manager.env` 和 `/var/lib/hfg`。容器使用固定 UID/GID 10001，挂载目录需显式授权：
 
 ```bash
 sudo chown root:10001 /etc/hfg
@@ -428,10 +587,11 @@ sudo chmod 0700 /etc/hfg/pki
 docker run -d --name hfg-manager --restart unless-stopped \
   --platform linux/amd64 \
   --env-file /etc/hfg/hfg-manager.env \
+  --env-file /etc/hfg/hfg-manager-bootstrap.env \
   -p 8080:8080 -p 19090:19090 \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-manager:0.1.3
+  hfg-manager:0.1.4
 
 docker logs --tail 200 hfg-manager
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
@@ -450,7 +610,7 @@ sudo chown -R 10001:10001 /etc/hfg/pki /var/lib/hfg
 sudo chown 10001:10001 /etc/hfg/ssh_host_ed25519_key
 sudo chmod 0700 /etc/hfg/pki
 sudo chmod 0600 /etc/hfg/ssh_host_ed25519_key
-export HFG_VERSION=0.1.3
+export HFG_VERSION=0.1.4
 docker compose -f docker/compose.gateway.yaml up -d
 docker compose -f docker/compose.gateway.yaml ps
 curl --fail http://127.0.0.1:18080/actuator/health/readiness
@@ -463,9 +623,10 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --platform linux/amd64 --network host --cap-add NET_BIND_SERVICE \
   --user 10001:10001 \
   --env-file /etc/hfg/hfg-gateway.env \
+  --env-file /etc/hfg/hfg-gateway-bootstrap.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.3
+  hfg-gateway:0.1.4
 ```
 
 Keepalived 仍运行在宿主机，使用本机 18080 readiness 和 21/22 监听状态决定是否持有 VIP。

@@ -51,15 +51,48 @@ class GatewayConfigurationValidatorTest {
             valid.sftp());
     IllegalStateException exception =
         assertThrows(
-            IllegalStateException.class,
-            () -> GatewayConfigurationValidator.validate(invalid));
+            IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
     assertTrue(exception.getMessage().contains("HFG_RPC_CA"));
+  }
+
+  @Test
+  void rejectsMissingSftpHostKeyInsteadOfGeneratingDifferentKeysPerNode() throws Exception {
+    GatewayProperties valid = properties("gateway-a", "group-a");
+    GatewayProperties invalid =
+        new GatewayProperties(
+            valid.gatewayId(),
+            valid.serviceGroupId(),
+            valid.snapshot(),
+            valid.rpc(),
+            valid.hdfs(),
+            valid.ftp(),
+            new GatewayProperties.Sftp(true, "0.0.0.0", 22, temp.resolve("missing-host-key")));
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
+    assertTrue(exception.getMessage().contains("HFG_SFTP_HOST_KEY"));
+  }
+
+  @Test
+  void permitsMissingHostKeyWhenSftpIsDisabled() throws Exception {
+    GatewayProperties valid = properties("gateway-a", "group-a");
+    GatewayProperties ftpOnly =
+        new GatewayProperties(
+            valid.gatewayId(),
+            valid.serviceGroupId(),
+            valid.snapshot(),
+            valid.rpc(),
+            valid.hdfs(),
+            valid.ftp(),
+            new GatewayProperties.Sftp(false, "0.0.0.0", 22, temp.resolve("unused-host-key")));
+    assertDoesNotThrow(() -> GatewayConfigurationValidator.validate(ftpOnly));
   }
 
   private GatewayProperties properties(String gatewayId, String groupId) throws Exception {
     Path ca = Files.writeString(temp.resolve("ca.crt"), "test");
     Path certificate = Files.writeString(temp.resolve("gateway.crt"), "test");
     Path key = Files.writeString(temp.resolve("gateway.key"), "test");
+    Path hostKey = Files.writeString(temp.resolve("ssh_host_ed25519_key"), "test");
     String publicKey = Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
     return new GatewayProperties(
         gatewayId,
@@ -80,9 +113,7 @@ class GatewayConfigurationValidatorTest {
             18080,
             Duration.ofSeconds(10)),
         new GatewayProperties.Hdfs(temp.resolve("hdfs-runtime"), Duration.ofMinutes(1)),
-        new GatewayProperties.Ftp(
-            true, "0.0.0.0", 21, "30000-31000", false, 300),
-        new GatewayProperties.Sftp(
-            true, "0.0.0.0", 22, temp.resolve("ssh_host_ed25519_key")));
+        new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300),
+        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey));
   }
 }

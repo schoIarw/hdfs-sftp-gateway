@@ -40,8 +40,9 @@ make package
 
 The command validates the frontend and backend, builds the UI, and packages it into:
 
-- `hfg-manager-api/target/hfg-manager-api-0.1.3.jar`
-- `hfg-gateway-app/target/hfg-gateway-app-0.1.3.jar`
+- `hfg-manager-api/target/hfg-manager-api-0.1.4.jar`
+- `hfg-gateway-app/target/hfg-gateway-app-0.1.4.jar`
+- `hfg-common-contract/target/hfg-common-contract-0.1.4-bootstrap.jar`（CA、Manager 证书和快照密钥一键初始化）
 
 Only Java 17 is needed to run these artifacts. Node.js is a build-time dependency only.
 

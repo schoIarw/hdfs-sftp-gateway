@@ -30,9 +30,8 @@ final class GatewayConfigurationValidator {
     ensureWritableParent("HFG_SNAPSHOT_PATH", properties.snapshot().path());
     ensureWritableParent("HFG_EVENT_WAL_PATH", properties.snapshot().eventWalPath());
     ensureWritableParent("HFG_HDFS_RUNTIME_PATH", properties.hdfs().runtimePath());
-    if (Files.exists(properties.sftp().hostKeyPath()))
-      requireReadableIfPresent("HFG_SFTP_HOST_KEY", properties.sftp().hostKeyPath());
-    else ensureWritableParent("HFG_SFTP_HOST_KEY", properties.sftp().hostKeyPath());
+    if (properties.sftp().enabled())
+      requireReadable("HFG_SFTP_HOST_KEY", properties.sftp().hostKeyPath());
     requireWritableIfPresent("HFG_SNAPSHOT_PATH", properties.snapshot().path());
     requireWritableIfPresent("HFG_EVENT_WAL_PATH", properties.snapshot().eventWalPath());
     requireWritableIfPresent("HFG_HDFS_RUNTIME_PATH", properties.hdfs().runtimePath());
@@ -90,11 +89,5 @@ final class GatewayConfigurationValidator {
     if (Files.exists(path) && !Files.isWritable(path))
       throw new IllegalStateException(
           name + " exists but is not writable by the Gateway process: " + path);
-  }
-
-  private static void requireReadableIfPresent(String name, Path path) {
-    if (Files.exists(path) && !Files.isReadable(path))
-      throw new IllegalStateException(
-          name + " exists but is not readable by the Gateway process: " + path);
   }
 }

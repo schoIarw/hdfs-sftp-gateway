@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.3}"
+VERSION="${1:-0.1.4}"
 ARCH="$(uname -m)"
 MEDIA_NAME="hfg-${VERSION}-linux-x86_64-docker"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -15,9 +15,9 @@ fi
 
 MANAGER_JAR="${ROOT_DIR}/hfg-manager-api/target/hfg-manager-api-${VERSION}.jar"
 GATEWAY_JAR="${ROOT_DIR}/hfg-gateway-app/target/hfg-gateway-app-${VERSION}.jar"
-KEYTOOL_JAR="${ROOT_DIR}/hfg-common-contract/target/hfg-common-contract-${VERSION}.jar"
+BOOTSTRAP_JAR="${ROOT_DIR}/hfg-common-contract/target/hfg-common-contract-${VERSION}-bootstrap.jar"
 SBOM="${ROOT_DIR}/target/bom.json"
-for required in "${MANAGER_JAR}" "${GATEWAY_JAR}" "${KEYTOOL_JAR}" "${SBOM}"; do
+for required in "${MANAGER_JAR}" "${GATEWAY_JAR}" "${BOOTSTRAP_JAR}" "${SBOM}"; do
   if [[ ! -f "${required}" ]]; then
     echo "Missing build output: ${required}" >&2
     exit 1
@@ -37,7 +37,7 @@ install -m 0644 "${MANAGER_JAR}" "${STAGE_DIR}/build/bin/hfg-manager.jar"
 install -m 0644 "${GATEWAY_JAR}" "${STAGE_DIR}/build/bin/hfg-gateway.jar"
 install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.manager" "${STAGE_DIR}/build/runtime/"
 install -m 0644 "${ROOT_DIR}/deploy/docker/runtime/Dockerfile.gateway" "${STAGE_DIR}/build/runtime/"
-install -m 0644 "${KEYTOOL_JAR}" "${STAGE_DIR}/tools/hfg-keytool.jar"
+install -m 0644 "${BOOTSTRAP_JAR}" "${STAGE_DIR}/tools/hfg-bootstrap.jar"
 install -m 0644 "${SBOM}" "${STAGE_DIR}/SBOM.cyclonedx.json"
 install -m 0644 "${ROOT_DIR}/deploy/env/hfg-manager.env.example" "${STAGE_DIR}/config/"
 install -m 0644 "${ROOT_DIR}/deploy/env/hfg-gateway.env.example" "${STAGE_DIR}/config/"
