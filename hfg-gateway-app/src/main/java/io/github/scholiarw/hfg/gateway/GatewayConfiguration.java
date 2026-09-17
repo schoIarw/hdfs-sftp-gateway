@@ -8,6 +8,7 @@ import io.github.scholiarw.hfg.protocol.ftp.*;
 import io.github.scholiarw.hfg.protocol.sftp.*;
 import io.github.scholiarw.hfg.storage.StorageClientFactory;
 import io.github.scholiarw.hfg.transfer.*;
+import java.net.InetAddress;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
@@ -19,9 +20,15 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 class GatewayConfiguration {
   @Bean
   AtomicSnapshotStore snapshotStore(GatewayProperties p, ObjectMapper mapper) throws Exception {
-    byte[] encoded = Base64.getDecoder().decode(p.snapshot().verificationPublicKeyBase64());
-    PublicKey key =
-        KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
+    GatewayConfigurationValidator.validate(p);
+    PublicKey key;
+    try {
+      byte[] encoded = Base64.getDecoder().decode(p.snapshot().verificationPublicKeyBase64());
+      key = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
+    } catch (GeneralSecurityException | IllegalArgumentException exception) {
+      throw new IllegalStateException(
+          "HFG_SNAPSHOT_PUBLIC_KEY_BASE64 is not a valid Ed25519 X.509 public key", exception);
+    }
     var store =
         new AtomicSnapshotStore(
             p.snapshot().path(), mapper, new SnapshotVerifier(key, mapper), p.serviceGroupId());
@@ -62,7 +69,8 @@ class GatewayConfiguration {
   }
 
   @Bean(destroyMethod = "close")
-  GrpcControlClient grpcControlClient(GatewayProperties p, AtomicSnapshotStore store)
+  GrpcControlClient grpcControlClient(
+      GatewayProperties p, AtomicSnapshotStore store, GatewayRuntimeStatus runtimeStatus)
       throws Exception {
     var r = p.rpc();
     var client =
@@ -76,17 +84,17 @@ class GatewayConfiguration {
                 r.clientPrivateKey(),
                 p.gatewayId(),
                 p.serviceGroupId(),
-                r.hostname(),
-                r.role(),
-                r.managementAddress(),
+                hostname(),
+                "http://" + r.advertisedAddress() + ":" + r.managementPort(),
                 r.advertisedAddress(),
                 p.ftp().port(),
                 p.sftp().port(),
                 r.managementPort(),
-                r.softwareVersion(),
-                r.heartbeatInterval()),
+                softwareVersion(),
+                r.heartbeatInterval(),
+                runtimeStatus::summary),
             store);
-    if (r.enabled()) client.start();
+    client.start();
     return client;
   }
 
@@ -95,7 +103,8 @@ class GatewayConfiguration {
       GatewayProperties p,
       AtomicSnapshotStore users,
       CredentialVerifier verifier,
-      TransferService transfers)
+      TransferService transfers,
+      GrpcControlClient control)
       throws Exception {
     var f = p.ftp();
     var server =
@@ -104,13 +113,33 @@ class GatewayConfiguration {
                 f.bindAddress(),
                 f.port(),
                 f.passivePorts(),
-                f.passiveExternalAddress(),
+                control.ftpPassiveExternalAddress(),
                 f.activeModeEnabled(),
                 f.idleTimeoutSeconds()),
             new HfgFtpUserManager(users, verifier, Clock.systemUTC()),
             new HfgFtpFileSystemFactory(users, transfers, p.gatewayId()));
     if (f.enabled()) server.start();
     return server;
+  }
+
+  private static String softwareVersion() {
+    String version = HfgGatewayApplication.class.getPackage().getImplementationVersion();
+    return version == null || version.isBlank() ? "development" : version;
+  }
+
+  private static String hostname() {
+    try {
+      String hostname = InetAddress.getLocalHost().getHostName();
+      if (hostname != null && !hostname.isBlank()) return hostname;
+    } catch (Exception ignored) {
+      // Fall through to the operating-system supplied environment value.
+    }
+    String hostname = System.getenv("HOSTNAME");
+    if (hostname == null || hostname.isBlank())
+      throw new IllegalStateException(
+          "Cannot determine the local hostname; configure the operating-system hostname or "
+              + "HOSTNAME environment variable");
+    return hostname;
   }
 
   @Bean

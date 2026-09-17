@@ -102,6 +102,9 @@ flowchart TB
 
 - 生产优先 SFTP；明文 FTP 只能位于可信网络，默认关闭主动模式并固定被动端口范围。
 - Manager gRPC 默认要求双向 TLS；证书 SAN 必须匹配 `HFG_RPC_SERVER_NAME`。Gateway 客户端证书由 Manager 使用 Java 密码学 API 和配置的 CA 签发并下载，私钥只在生成响应中出现一次。
+- Gateway 所有控制面通信统一使用 mTLS gRPC，包括快照/HDFS 包获取、心跳、传输事件和配额租约；Gateway 不保存 Manager HTTP 管理账号密码。
+- FTP PASV 对外地址由 Manager 按服务组下发 VIP。Gateway 不区分应用层 Active/Standby，统一上报 `SERVING`；Keepalived 独立决定哪台节点持有 VIP。
+- Gateway 启动时校验身份、证书、端口和目录权限；运行期 HDFS 同步与事件上报错误随心跳写入节点状态，管理页面展示 `DEGRADED` 和错误摘要。
 - SFTP 主机密钥必须持久化并在主备节点保持一致。
 - HDFS ZIP 和解压后的 keytab 仅保存在 Manager 受控数据目录，并通过 mTLS gRPC 控制通道下发到 Gateway；证书 CN、请求 Gateway ID 与登记服务组进行绑定校验。数据库密码、管理密码、CA 私钥和 TLS 私钥禁止写入仓库。
 - 管理 REST 当前采用 HTTP Basic，生产必须位于 HTTPS 反向代理后；可在不改变领域层的情况下替换为企业 OIDC。

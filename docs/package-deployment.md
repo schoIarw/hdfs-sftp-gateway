@@ -288,10 +288,7 @@ Active/Standby 两台相同的关键配置：
 
 ```ini
 HFG_SERVICE_GROUP_ID=group-a
-HFG_VIP=10.0.10.20
 HFG_RPC_HOST=hfg-manager.example.com
-HFG_RPC_SERVER_NAME=hfg-manager.example.com
-HFG_RPC_CA=/etc/hfg/pki/ca.crt
 HFG_SNAPSHOT_PUBLIC_KEY_BASE64=REPLACE_WITH_MANAGER_PUBLIC_KEY
 HFG_FTP_PORT=21
 HFG_SFTP_PORT=22
@@ -303,9 +300,9 @@ HFG_FTP_PASSIVE_PORTS=30000-31000
 ```ini
 HFG_GATEWAY_ID=hfg-gateway-a01
 HFG_NODE_IP=10.0.10.11
-HFG_RPC_CLIENT_CERT=/etc/hfg/pki/gateway.crt
-HFG_RPC_CLIENT_KEY=/etc/hfg/pki/gateway.key
 ```
+
+证书和运行目录均使用约定默认路径，只有路径变化时才覆盖 `HFG_RPC_CA`、`HFG_RPC_CLIENT_CERT`、`HFG_RPC_CLIENT_KEY`、`HFG_SFTP_HOST_KEY` 或 `HFG_HDFS_RUNTIME_PATH`。`HFG_RPC_SERVER_NAME` 默认等于 `HFG_RPC_HOST`，仅在连接地址与证书 SAN 名称不同时设置。服务组 VIP 由 Manager 下发；主机名和软件版本由程序自动获取；不再配置角色、Manager HTTP 地址或管理账号密码。
 
 Gateway 不配置 HDFS XML、keytab、principal 或 HDFS 用户。它凭 Manager 下发的客户端证书认证，通过控制通道获取服务组 HDFS 包并写入 `/var/lib/hfg/hdfs-runtime`。
 

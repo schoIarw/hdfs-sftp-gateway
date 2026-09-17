@@ -21,20 +21,22 @@ class HdfsBundleSynchronizer {
   private final GatewayProperties properties;
   private final ReloadableHdfsStorageClientFactory storage;
   private final GrpcControlClient control;
+  private final GatewayRuntimeStatus runtimeStatus;
   private String installedHash;
 
   HdfsBundleSynchronizer(
       GatewayProperties properties,
       ReloadableHdfsStorageClientFactory storage,
-      GrpcControlClient control) {
+      GrpcControlClient control,
+      GatewayRuntimeStatus runtimeStatus) {
     this.properties = properties;
     this.storage = storage;
     this.control = control;
+    this.runtimeStatus = runtimeStatus;
   }
 
   @Scheduled(fixedDelayString = "${hfg.hdfs.refresh-interval:PT1M}")
   void synchronize() {
-    if (!properties.rpc().enabled()) return;
     try {
       GrpcControlClient.HdfsBundle bundle = control.downloadHdfsBundle();
       byte[] zip = bundle.zip();
@@ -46,7 +48,9 @@ class HdfsBundleSynchronizer {
         throw new IllegalArgumentException("HDFS configuration digest mismatch");
       if (hash.equals(installedHash) && storage.ready()) return;
       install(zip, hash);
+      runtimeStatus.healthy("hdfs");
     } catch (Exception e) {
+      runtimeStatus.failed("hdfs", e);
       log.warn("Cannot synchronize HDFS configuration: {}", e.getMessage());
     }
   }

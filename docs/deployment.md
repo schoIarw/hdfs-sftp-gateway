@@ -139,7 +139,7 @@ sudoedit /etc/hfg/hfg-gateway.env
 
 先在管理页面“系统管理”上传 HDFS ZIP；Manager 会自动读取 keytab principal 和 XML。然后按 Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.key` 和 `ca.crt` 安装到 Gateway 的 `/etc/hfg/pki`。整个签发过程由 Java 完成，不调用 openssl。
 
-同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、`HFG_VIP`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID`、`HFG_NODE_IP` 和客户端证书应按节点设置。Gateway 不再配置 Hadoop XML、keytab、principal 或 HDFS 用户；启动后凭客户端证书从 Manager mTLS gRPC 控制通道下载对应服务组的 HDFS 包并写入 `/var/lib/hfg/hdfs-runtime`。证书 CN、`HFG_GATEWAY_ID` 及生成证书时选择的服务组必须一致。
+同一服务组的两台节点必须具有相同 `HFG_SERVICE_GROUP_ID`、快照公钥和 SFTP host key，但 `HFG_GATEWAY_ID`、`HFG_NODE_IP` 和客户端证书应按节点设置。服务组 VIP 由 Manager 通过 mTLS gRPC 下发，用于 FTP PASV 响应，无需在 Gateway 重复配置。Gateway 不再配置 Manager HTTP 用户名/密码、Hadoop XML、keytab、principal 或 HDFS 用户；启动后凭客户端证书完成全部控制面通信。证书 CN、`HFG_GATEWAY_ID` 及证书登记的服务组必须一致。
 
 直接前台运行：
 

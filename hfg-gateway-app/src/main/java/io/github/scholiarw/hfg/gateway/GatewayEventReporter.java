@@ -2,6 +2,7 @@ package io.github.scholiarw.hfg.gateway;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.scholiarw.hfg.contract.TransferEvent;
+import io.github.scholiarw.hfg.control.GrpcControlClient;
 import io.github.scholiarw.hfg.transfer.TransferEventSink;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -19,22 +20,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 @Component
 class GatewayEventReporter implements TransferEventSink {
   private static final Logger log = LoggerFactory.getLogger(GatewayEventReporter.class);
   private static final int BATCH_SIZE = 500;
-  private final GatewayProperties properties;
   private final ObjectMapper mapper;
-  private final RestClient client;
+  private final GatewayProperties properties;
+  private final GrpcControlClient control;
+  private final GatewayRuntimeStatus runtimeStatus;
   private final ReentrantLock appendLock = new ReentrantLock();
 
   GatewayEventReporter(
-      GatewayProperties properties, ObjectMapper mapper, RestClient.Builder builder) {
+      GatewayProperties properties,
+      ObjectMapper mapper,
+      GrpcControlClient control,
+      GatewayRuntimeStatus runtimeStatus) {
     this.properties = properties;
     this.mapper = mapper;
-    this.client = builder.build();
+    this.control = control;
+    this.runtimeStatus = runtimeStatus;
   }
 
   @Override
@@ -58,14 +63,14 @@ class GatewayEventReporter implements TransferEventSink {
 
   @Scheduled(fixedDelayString = "${hfg.snapshot.event-report-interval:PT5S}")
   void flush() {
-    if (properties.snapshot().managerUrl() == null || properties.snapshot().managerUrl().isBlank())
-      return;
     Path wal = properties.snapshot().eventWalPath();
     Path sending = wal.resolveSibling(wal.getFileName() + ".sending");
     try {
       if (!prepareSending(wal, sending)) return;
       drainBatch(sending);
+      runtimeStatus.healthy("event-reporting");
     } catch (Exception exception) {
+      runtimeStatus.failed("event-reporting", exception);
       log.warn("Transfer event report failed; WAL retained: {}", exception.getMessage());
     }
   }
@@ -118,16 +123,17 @@ class GatewayEventReporter implements TransferEventSink {
   }
 
   private void report(List<TransferEvent> batch) {
-    client
-        .post()
-        .uri(properties.snapshot().managerUrl() + "/api/v1/control/transfer-events")
-        .headers(
-            headers ->
-                headers.setBasicAuth(
-                    properties.snapshot().username(), properties.snapshot().password()))
-        .body(batch)
-        .retrieve()
-        .toBodilessEntity();
+    control.reportTransferEvents(
+        batch.stream()
+            .map(
+                event -> {
+                  try {
+                    return mapper.writeValueAsString(event);
+                  } catch (IOException exception) {
+                    throw new IllegalStateException("Cannot serialize transfer event", exception);
+                  }
+                })
+            .toList());
   }
 
   private static void move(Path source, Path target) throws IOException {

@@ -1,68 +1,49 @@
 package io.github.scholiarw.hfg.gateway;
 
 import io.github.scholiarw.hfg.contract.*;
+import io.github.scholiarw.hfg.control.GrpcControlClient;
 import io.github.scholiarw.hfg.transfer.QuotaLeaseClient;
-import java.util.UUID;
+import io.grpc.StatusRuntimeException;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 @Component
 class HttpQuotaLeaseClient implements QuotaLeaseClient {
-  private final GatewayProperties p;
-  private final RestClient client;
+  private final GrpcControlClient control;
 
-  HttpQuotaLeaseClient(GatewayProperties p, RestClient.Builder builder) {
-    this.p = p;
-    this.client = builder.build();
+  HttpQuotaLeaseClient(GrpcControlClient control) {
+    this.control = control;
   }
 
   public Lease reserve(UserSnapshot user, TransferDirection direction, long files, long bytes) {
-    if (p.snapshot().managerUrl() == null || p.snapshot().managerUrl().isBlank())
-      throw new HfgException(
-          HfgErrorCode.QUOTA_EXCEEDED, "Manager is required to reserve periodic quota");
-    Response r =
-        client
-            .post()
-            .uri(p.snapshot().managerUrl() + "/api/v1/control/quota-reservations")
-            .headers(h -> h.setBasicAuth(p.snapshot().username(), p.snapshot().password()))
-            .body(new Request(user.id(), direction, files, bytes))
-            .retrieve()
-            .body(Response.class);
-    if (r == null) throw new HfgException(HfgErrorCode.QUOTA_EXCEEDED, "Empty quota response");
-    return new Lease(r.id(), r.files(), r.bytes());
+    try {
+      var reservation = control.reserveQuota(user.id(), direction.name(), files, bytes);
+      return new Lease(reservation.id(), reservation.files(), reservation.bytes());
+    } catch (StatusRuntimeException exception) {
+      throw quotaError(exception);
+    }
   }
 
   @Override
   public void renew(Lease lease) {
-    client
-        .post()
-        .uri(
-            p.snapshot().managerUrl()
-                + "/api/v1/control/quota-reservations/"
-                + lease.id()
-                + "/renew")
-        .headers(h -> h.setBasicAuth(p.snapshot().username(), p.snapshot().password()))
-        .retrieve()
-        .toBodilessEntity();
+    try {
+      control.renewQuota(lease.id());
+    } catch (StatusRuntimeException exception) {
+      throw quotaError(exception);
+    }
   }
 
   public void commit(Lease lease, long files, long bytes) {
-    client
-        .post()
-        .uri(
-            p.snapshot().managerUrl()
-                + "/api/v1/control/quota-reservations/"
-                + lease.id()
-                + "/commit")
-        .headers(h -> h.setBasicAuth(p.snapshot().username(), p.snapshot().password()))
-        .body(new Commit(files, bytes))
-        .retrieve()
-        .toBodilessEntity();
+    try {
+      control.commitQuota(lease.id(), files, bytes);
+    } catch (StatusRuntimeException exception) {
+      throw quotaError(exception);
+    }
   }
 
-  record Request(UUID userId, TransferDirection direction, long files, long bytes) {}
-
-  record Response(UUID id, long files, long bytes) {}
-
-  record Commit(long completedFiles, long completedBytes) {}
+  private static HfgException quotaError(StatusRuntimeException exception) {
+    String detail = exception.getStatus().getDescription();
+    return new HfgException(
+        HfgErrorCode.QUOTA_EXCEEDED,
+        detail == null || detail.isBlank() ? "Manager rejected quota reservation" : detail);
+  }
 }

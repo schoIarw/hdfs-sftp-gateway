@@ -6,8 +6,11 @@ import io.grpc.*;
 import io.grpc.netty.shaded.io.grpc.netty.*;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import org.slf4j.*;
 
 public final class GrpcControlClient implements AutoCloseable {
@@ -23,6 +26,7 @@ public final class GrpcControlClient implements AutoCloseable {
           });
   private final AtomicBoolean subscribing = new AtomicBoolean();
   private ManagedChannel channel;
+  private String ftpPassiveExternalAddress;
 
   public GrpcControlClient(Settings settings, AtomicSnapshotStore store) {
     this.settings = settings;
@@ -43,6 +47,28 @@ public final class GrpcControlClient implements AutoCloseable {
     if (settings.serverName() != null && !settings.serverName().isBlank())
       builder.overrideAuthority(settings.serverName());
     channel = builder.build();
+    GatewayConfigurationResponse configuration;
+    try {
+      configuration =
+          HfgControlPlaneGrpc.newBlockingStub(channel)
+              .withDeadlineAfter(10, TimeUnit.SECONDS)
+              .getGatewayConfiguration(
+                  GatewayConfigurationRequest.newBuilder()
+                      .setGatewayId(settings.gatewayId())
+                      .setServiceGroupId(settings.serviceGroupId())
+                      .build());
+    } catch (StatusRuntimeException exception) {
+      throw new IllegalStateException(
+          "Cannot authenticate with HFG Manager at "
+              + settings.host()
+              + ":"
+              + settings.port()
+              + ". Verify HFG_GATEWAY_ID, HFG_SERVICE_GROUP_ID, certificate assignment, CA, "
+              + "and HFG_RPC_SERVER_NAME. Manager response: "
+              + exception.getStatus(),
+          exception);
+    }
+    ftpPassiveExternalAddress = configuration.getFtpPassiveExternalAddress();
     subscribe();
     scheduler.scheduleWithFixedDelay(
         this::heartbeat, 0, settings.heartbeatInterval().toSeconds(), TimeUnit.SECONDS);
@@ -95,7 +121,7 @@ public final class GrpcControlClient implements AutoCloseable {
                   .setGatewayId(settings.gatewayId())
                   .setServiceGroupId(settings.serviceGroupId())
                   .setHostname(settings.hostname())
-                  .setRole(settings.role())
+                  .setRole("SERVING")
                   .setManagementAddress(settings.managementAddress())
                   .setSoftwareVersion(settings.softwareVersion())
                   .setSnapshotVersion(store.version())
@@ -103,9 +129,15 @@ public final class GrpcControlClient implements AutoCloseable {
                   .setFtpPort(settings.ftpPort())
                   .setSftpPort(settings.sftpPort())
                   .setManagementPort(settings.managementPort())
+                  .setRuntimeStatus(settings.lastError().get().isBlank() ? "UP" : "DEGRADED")
+                  .setLastError(settings.lastError().get())
                   .build());
     } catch (Exception e) {
-      log.debug("Control-plane heartbeat failed: {}", e.getMessage());
+      log.warn(
+          "Control-plane heartbeat failed for Gateway {} in service group {}: {}",
+          settings.gatewayId(),
+          settings.serviceGroupId(),
+          Status.fromThrowable(e));
     }
   }
 
@@ -120,6 +152,62 @@ public final class GrpcControlClient implements AutoCloseable {
                     .setServiceGroupId(settings.serviceGroupId())
                     .build());
     return new HdfsBundle(response.getZip().toByteArray(), response.getSha256());
+  }
+
+  public String ftpPassiveExternalAddress() {
+    return ftpPassiveExternalAddress;
+  }
+
+  public void reportTransferEvents(List<String> eventJson) {
+    TransferEventsRequest.Builder request =
+        TransferEventsRequest.newBuilder()
+            .setGatewayId(settings.gatewayId())
+            .setServiceGroupId(settings.serviceGroupId());
+    request.addAllEventJson(eventJson);
+    stub().reportTransferEvents(request.build());
+  }
+
+  public QuotaReservation reserveQuota(UUID userId, String direction, long files, long bytes) {
+    QuotaReservationResponse response =
+        stub()
+            .reserveQuota(
+                QuotaReserveRequest.newBuilder()
+                    .setGatewayId(settings.gatewayId())
+                    .setServiceGroupId(settings.serviceGroupId())
+                    .setUserId(userId.toString())
+                    .setDirection(direction)
+                    .setFiles(files)
+                    .setBytes(bytes)
+                    .build());
+    return new QuotaReservation(
+        UUID.fromString(response.getId()), response.getFiles(), response.getBytes());
+  }
+
+  public void renewQuota(UUID reservationId) {
+    stub()
+        .renewQuota(
+            QuotaRenewRequest.newBuilder()
+                .setGatewayId(settings.gatewayId())
+                .setServiceGroupId(settings.serviceGroupId())
+                .setReservationId(reservationId.toString())
+                .build());
+  }
+
+  public void commitQuota(UUID reservationId, long completedFiles, long completedBytes) {
+    stub()
+        .commitQuota(
+            QuotaCommitRequest.newBuilder()
+                .setGatewayId(settings.gatewayId())
+                .setServiceGroupId(settings.serviceGroupId())
+                .setReservationId(reservationId.toString())
+                .setCompletedFiles(completedFiles)
+                .setCompletedBytes(completedBytes)
+                .build());
+  }
+
+  private HfgControlPlaneGrpc.HfgControlPlaneBlockingStub stub() {
+    if (channel == null) throw new IllegalStateException("Control-plane channel is not started");
+    return HfgControlPlaneGrpc.newBlockingStub(channel).withDeadlineAfter(30, TimeUnit.SECONDS);
   }
 
   @Override
@@ -138,14 +226,16 @@ public final class GrpcControlClient implements AutoCloseable {
       String gatewayId,
       String serviceGroupId,
       String hostname,
-      String role,
       String managementAddress,
       String ipAddress,
       int ftpPort,
       int sftpPort,
       int managementPort,
       String softwareVersion,
-      Duration heartbeatInterval) {}
+      Duration heartbeatInterval,
+      Supplier<String> lastError) {}
 
   public record HdfsBundle(byte[] zip, String sha256) {}
+
+  public record QuotaReservation(UUID id, long files, long bytes) {}
 }

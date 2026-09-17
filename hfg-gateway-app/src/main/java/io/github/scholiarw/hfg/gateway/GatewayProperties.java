@@ -17,27 +17,18 @@ public record GatewayProperties(
   public record Snapshot(
       Path path,
       String verificationPublicKeyBase64,
-      String managerUrl,
-      String username,
-      String password,
-      Duration refreshInterval,
       Path eventWalPath,
       Duration eventReportInterval) {}
 
   public record Rpc(
-      boolean enabled,
       String host,
       int port,
       String serverName,
       Path caCertificate,
       Path clientCertificate,
       Path clientPrivateKey,
-      String hostname,
-      String role,
-      String managementAddress,
       String advertisedAddress,
       int managementPort,
-      String softwareVersion,
       Duration heartbeatInterval) {}
 
   public record Hdfs(Path runtimePath, Duration refreshInterval) {}
@@ -47,7 +38,6 @@ public record GatewayProperties(
       String bindAddress,
       int port,
       String passivePorts,
-      String passiveExternalAddress,
       boolean activeModeEnabled,
       int idleTimeoutSeconds) {}
 

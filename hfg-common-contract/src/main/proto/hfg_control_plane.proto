@@ -8,6 +8,11 @@ service HfgControlPlane {
   rpc SubscribeSnapshots(SubscribeSnapshotsRequest) returns (stream SnapshotEnvelope);
   rpc Heartbeat(GatewayHeartbeat) returns (HeartbeatAck);
   rpc GetHdfsBundle(HdfsBundleRequest) returns (HdfsBundleResponse);
+  rpc GetGatewayConfiguration(GatewayConfigurationRequest) returns (GatewayConfigurationResponse);
+  rpc ReportTransferEvents(TransferEventsRequest) returns (OperationAck);
+  rpc ReserveQuota(QuotaReserveRequest) returns (QuotaReservationResponse);
+  rpc RenewQuota(QuotaRenewRequest) returns (OperationAck);
+  rpc CommitQuota(QuotaCommitRequest) returns (OperationAck);
 }
 
 message SubscribeSnapshotsRequest {
@@ -34,6 +39,8 @@ message GatewayHeartbeat {
   int32 ftp_port = 9;
   int32 sftp_port = 10;
   int32 management_port = 11;
+  string runtime_status = 12;
+  string last_error = 13;
 }
 
 message HeartbeatAck {
@@ -50,3 +57,49 @@ message HdfsBundleResponse {
   bytes zip = 1;
   string sha256 = 2;
 }
+
+message GatewayConfigurationRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+}
+
+message GatewayConfigurationResponse {
+  string ftp_passive_external_address = 1;
+}
+
+message TransferEventsRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+  repeated string event_json = 3;
+}
+
+message QuotaReserveRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+  string user_id = 3;
+  string direction = 4;
+  int64 files = 5;
+  int64 bytes = 6;
+}
+
+message QuotaReservationResponse {
+  string id = 1;
+  int64 files = 2;
+  int64 bytes = 3;
+}
+
+message QuotaRenewRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+  string reservation_id = 3;
+}
+
+message QuotaCommitRequest {
+  string gateway_id = 1;
+  string service_group_id = 2;
+  string reservation_id = 3;
+  int64 completed_files = 4;
+  int64 completed_bytes = 5;
+}
+
+message OperationAck {}

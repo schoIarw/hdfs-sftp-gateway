@@ -80,6 +80,20 @@ npm run build
 
 故障切换测试记录 VRRP 日志、VIP 邻居缓存更新时间、客户端失败时间、Gateway readiness 和快照版本。验收指标应由项目现场 SLA 确认，不在代码中伪造固定秒数。
 
+### Gateway 最小配置验收
+
+| 编号 | 场景 | 预期结果 |
+|---|---|---|
+| CFG-01 | 仅配置 Gateway ID、服务组 ID、RPC Host、节点 IP 和快照公钥 | 使用默认路径/端口启动，VIP 从 Manager 服务组下发 |
+| CFG-02 | 服务组 ID 不存在、停用或与证书登记不一致 | 启动失败，日志明确指出 `HFG_SERVICE_GROUP_ID` 和证书服务组绑定问题 |
+| CFG-03 | Gateway ID 与客户端证书 CN 不一致 | 启动失败，日志同时显示配置 ID 与证书 CN |
+| CFG-04 | CA、客户端证书或私钥缺失/无读取权限 | 启动失败，日志指出具体环境变量、路径及权限问题 |
+| CFG-05 | HDFS/runtime、事件 WAL 或 SFTP host key 目录不可写 | 启动失败，日志指出具体目录和运行账号权限 |
+| CFG-06 | RPC Host 与证书 SAN 不一致 | TLS 认证失败，日志提示检查 `HFG_RPC_SERVER_NAME`；正确覆盖后恢复 |
+| CFG-07 | HDFS 配置同步或事件上报持续失败 | Manager 节点列表显示 `DEGRADED` 和错误摘要，恢复后回到 `UP` |
+| CFG-08 | 上传下载产生事件并触发周期配额 | 仅通过 19090 mTLS gRPC 完成，Gateway 无 Manager HTTP 用户名/密码 |
+| CFG-09 | 同一服务组内两台 Gateway 上报相同操作系统主机名 | Manager 拒绝后注册节点，Gateway 日志明确显示重复主机名和服务组 |
+
 ## 7. 安全测试
 
 - 密码、keytab、私钥、Authorization 和快照私钥不出现在日志、审计 before/after 或 Prometheus。

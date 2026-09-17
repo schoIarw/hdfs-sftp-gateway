@@ -9,28 +9,35 @@ java -jar /opt/hfg/hfg-manager.jar \
 
 本文和 `deploy/env/*.env.example` 采用环境变量作为标准部署接口。systemd 通过 `EnvironmentFile` 加载；手工运行时需先执行 `set -a; source <env-file>; set +a`，否则 shell 中未导出的变量不会传入 Java。
 
-## Gateway 必填项
+## Gateway 最小配置
 
 | 环境变量 | 用途 | 示例 |
 |---|---|---|
 | HFG_GATEWAY_ID | 全局唯一节点 ID | hfg-gateway-a01 |
 | HFG_SERVICE_GROUP_ID | 固定服务组 | group-a |
 | HFG_SNAPSHOT_PUBLIC_KEY_BASE64 | Ed25519 X.509 公钥 Base64 | Secret 注入 |
-| HFG_HDFS_RUNTIME_PATH | 管理端下发的 HDFS 配置落盘目录 | /var/lib/hfg/hdfs-runtime |
-| HFG_HDFS_REFRESH_INTERVAL | HDFS 配置包同步周期 | PT1M |
 | HFG_RPC_HOST | Manager gRPC/VIP | hfg-manager.internal |
-| HFG_MANAGER_URL | Manager HTTPS 基址，用于事件与配额 | https://hfg-manager.internal |
-| HFG_MANAGER_USERNAME / HFG_MANAGER_PASSWORD | Gateway 服务账号 | Secret 注入 |
-| HFG_RPC_CA | gRPC CA 文件 | /etc/hfg/pki/ca.crt |
-| HFG_RPC_CLIENT_CERT | 客户端证书 | /etc/hfg/pki/gateway.crt |
-| HFG_RPC_CLIENT_KEY | 客户端私钥 | /etc/hfg/pki/gateway.key |
-| HFG_RPC_SERVER_NAME | TLS 服务名 | hfg-manager |
-| HFG_SFTP_HOST_KEY | 持久化 SSH 主机密钥 | /etc/hfg/ssh_host_ed25519_key |
-| HFG_VIP | FTP PASV 返回地址 | 10.0.10.20 |
-| HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | readiness/metrics 监听 | 127.0.0.1 / 18080 |
 | HFG_NODE_IP | 心跳上报的节点服务 IP | 10.0.10.11 |
 
-生产使用 gRPC mTLS 分发快照，同时仍通过 Manager HTTPS REST 上报事件和申请精确配额。只有不使用周期配额且允许不汇总业务事件的隔离测试环境才可以省略 HFG_MANAGER_URL。本地开发可把 `HFG_RPC_ENABLED` 设为 false，此时同一 REST 基址还承担快照轮询。
+Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输事件、申请精确配额，不再配置 Manager HTTP URL、用户名或密码。FTP PASV 对外地址由 Manager 根据 `HFG_SERVICE_GROUP_ID` 下发服务组 VIP；节点角色固定上报为 `SERVING`，实际流量归属由 Keepalived 决定。
+
+以下参数有默认值，只在现场值不同时配置：
+
+| 环境变量 | 默认值/用途 |
+|---|---|
+| HFG_RPC_PORT | `19090` |
+| HFG_RPC_SERVER_NAME | 默认等于 `HFG_RPC_HOST`；仅当连接地址与 Manager 证书 SAN 名称不同时覆盖 |
+| HFG_RPC_CA | `/etc/hfg/pki/ca.crt`，校验 Manager 身份 |
+| HFG_RPC_CLIENT_CERT | `/etc/hfg/pki/gateway.crt`，证明 Gateway 身份和服务组授权 |
+| HFG_RPC_CLIENT_KEY | `/etc/hfg/pki/gateway.key`，客户端证书私钥 |
+| HFG_SFTP_HOST_KEY | `/etc/hfg/ssh_host_ed25519_key`，SFTP 服务端主机身份；同组节点应保持一致 |
+| HFG_HDFS_RUNTIME_PATH | `/var/lib/hfg/hdfs-runtime`，Manager 下发的 HDFS 配置落盘目录 |
+| HFG_HDFS_REFRESH_INTERVAL | `PT1M`，检查 HDFS 配置包更新的周期 |
+| HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | `127.0.0.1:18080`，Gateway 自身 readiness/Prometheus 端口，不是 Manager 地址 |
+| HFG_FTP_PORT / HFG_SFTP_PORT | `21` / `22` |
+| HFG_FTP_PASSIVE_PORTS | `30000-31000` |
+
+主机名由操作系统自动获取，软件版本从 JAR Manifest 自动读取。`HFG_ROLE`、`HFG_VIP`、`HFG_MANAGER_URL`、`HFG_MANAGER_USERNAME`、`HFG_MANAGER_PASSWORD`、`HFG_SOFTWARE_VERSION` 和 `HFG_RPC_HOSTNAME` 已取消。
 
 ## Gateway 端口
 
@@ -80,7 +87,7 @@ sudo /opt/hfg/jdk-17/bin/java -cp bin/hfg-keytool.jar \
 
 ## Keepalived
 
-为每个服务组从 `deploy/keepalived/keepalived.conf.template` 生成配置。主备必须使用相同 VRID/认证信息和不同优先级，单播地址互指。健康脚本同时检查 systemd、21/22 监听端口和 readiness。角色通知写入 `/var/lib/hfg/role`，再通过服务环境映射为 HFG_ROLE。
+为每个服务组从 `deploy/keepalived/keepalived.conf.template` 生成配置。主备必须使用相同 VRID/认证信息和不同优先级，单播地址互指。健康脚本同时检查 systemd、21/22 监听端口和 readiness。Keepalived 决定 VIP 当前归属，Gateway 本身不再维护 Active/Standby 角色。
 
 
 ## 管理库与业务日志库
