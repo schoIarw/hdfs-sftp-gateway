@@ -74,7 +74,11 @@ Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地
 | HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员；用户名默认 `admin`，密码必填 |
 | HFG_GATEWAY_CERT_VALIDITY_DAYS | Gateway 证书有效天数，默认 365 |
 | HFG_HDFS_BUNDLE_PATH | HDFS ZIP 与安全解压内容保存目录 |
+| HFG_PROMETHEUS_ENABLED | 是否启用 Manager 的 Prometheus 查询，默认 true；设为 false 后界面显示“未开启”，查询接口返回 503 |
 | HFG_PROMETHEUS_URL | 固定 Prometheus 服务地址 |
+| HFG_PROMETHEUS_USERNAME / HFG_PROMETHEUS_PASSWORD | Prometheus 的 Basic 认证账号；留空表示匿名访问 |
+| HFG_PROMETHEUS_TOKEN | Prometheus 的 Bearer Token，优先级高于 Basic；留空则不发送 |
+| HFG_PROMETHEUS_TIMEOUT | 查询超时，默认 PT10S |
 | HFG_MANAGER_PORT | Manager 页面与 REST API 端口，默认 8080 |
 | HFG_DB_POOL_SIZE / HFG_DB_MIN_IDLE | 管理库连接池，默认 `20` / `2` |
 | HFG_RPC_ENABLED / HFG_RPC_PORT | 默认 `true` / `19090`；仅本地演示可关闭 RPC |
@@ -85,6 +89,8 @@ Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地
 `HFG_SNAPSHOT_PRIVATE_KEY_BASE64`、`HFG_SNAPSHOT_PUBLIC_KEY_BASE64`、`HFG_RPC_SERVER_CERT`、
 `HFG_RPC_SERVER_KEY`、`HFG_RPC_CA`、`HFG_RPC_CA_KEY` 由初始化工具写入单独的
 `/etc/hfg/hfg-manager-bootstrap.env`，不要复制到主配置文件。
+
+Manager 的“监控告警”页面通过 `HFG_PROMETHEUS_URL` 代理 PromQL 查询：`HFG_PROMETHEUS_ENABLED=false` 时该功能整体关闭（页面显示未开启，接口返回 503），需要认证时配置 `HFG_PROMETHEUS_TOKEN`（Bearer）或 `HFG_PROMETHEUS_USERNAME`/`HFG_PROMETHEUS_PASSWORD`（Basic）。
 
 HDFS 接入只接受最大 32 MiB 的 ZIP，解压后的 XML/keytab 总量不得超过 128 MiB。包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、忽略其他文件、从 keytab 自动读取 principal，并保存 SHA-256。当前版本选择发现的第一个 keytab 及其第一个 principal，因此生产 ZIP 应只包含一个目标 keytab，并在上传前使用 `klist -kte` 确认身份。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
 

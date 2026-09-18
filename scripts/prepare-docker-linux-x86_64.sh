@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.5}"
+VERSION="${1:-0.1.6}"
 ARCH="$(uname -m)"
 MEDIA_NAME="hfg-${VERSION}-linux-x86_64-docker"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -58,11 +58,36 @@ cat > "${STAGE_DIR}/README.txt" <<EOF
 HFG ${VERSION} Linux x86_64 Docker deployment medium
 
 Start here: docs/package-deployment.md, section "Docker 部署"
-Load images: docker load -i images/hfg-images.tar
+Images: images/hfg-images.tar (docker load -i images/hfg-images.tar)
+        If the tar is missing, run ./build-images.sh on a host with Docker.
 Compose files: docker/
 
 This archive contains no Native Manager/Gateway executable JARs.
 Use hfg-${VERSION}-linux-x86_64-native.tar.gz for Native deployment.
 EOF
 
-echo "${STAGE_DIR}"
+cat > "${STAGE_DIR}/build-images.sh" <<EOF
+#!/usr/bin/env bash
+# Builds the HFG images from this medium and stores them in images/hfg-images.tar.
+set -euo pipefail
+cd "\$(dirname "\${BASH_SOURCE[0]}")"
+VERSION="\${1:-${VERSION}}"
+docker build -f build/runtime/Dockerfile.manager -t "hfg-manager:\${VERSION}" build
+docker build -f build/runtime/Dockerfile.gateway -t "hfg-gateway:\${VERSION}" build
+docker save -o images/hfg-images.tar "hfg-manager:\${VERSION}" "hfg-gateway:\${VERSION}"
+echo "images/hfg-images.tar created for \${VERSION}"
+EOF
+chmod 0755 "${STAGE_DIR}/build-images.sh"
+
+SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "${ROOT_DIR}" log -1 --format=%ct 2>/dev/null || date +%s)}"
+ARCHIVE="${DIST_DIR}/${MEDIA_NAME}.tar.gz"
+mkdir -p "${DIST_DIR}"
+# GNU tar before 1.28 (CentOS 7) has no --sort/--mtime support.
+if tar --help 2>/dev/null | grep -q -- '--sort'; then
+  tar --sort=name --mtime="@${SOURCE_EPOCH}" --owner=0 --group=0 --numeric-owner \
+    -C "${DIST_DIR}" -czf "${ARCHIVE}" "${MEDIA_NAME}"
+else
+  tar -C "${DIST_DIR}" -czf "${ARCHIVE}" "${MEDIA_NAME}"
+fi
+sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+echo "${ARCHIVE}"

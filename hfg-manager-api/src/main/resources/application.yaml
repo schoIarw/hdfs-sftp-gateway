@@ -35,7 +35,16 @@ hfg:
     signing-private-key-base64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:}
     signing-public-key-base64: ${HFG_SNAPSHOT_PUBLIC_KEY_BASE64:}
   prometheus:
+    # 关闭后管理界面的监控查询显示“未开启”，相关接口返回 503。
+    enabled: ${HFG_PROMETHEUS_ENABLED:true}
     base-url: ${HFG_PROMETHEUS_URL:http://127.0.0.1:9090}
+    # 认证方式：token（Bearer，优先）或 username/password（Basic）；都为空表示匿名访问。
+    username: ${HFG_PROMETHEUS_USERNAME:}
+    password: ${HFG_PROMETHEUS_PASSWORD:}
+    token: ${HFG_PROMETHEUS_TOKEN:}
+    request-timeout: ${HFG_PROMETHEUS_TIMEOUT:PT10S}
+    # 状态接口探测 /-/healthy 的超时
+    health-timeout: ${HFG_PROMETHEUS_HEALTH_TIMEOUT:PT2S}
   logs:
     url: ${HFG_LOGS_DB_URL:}
     username: ${HFG_LOGS_DB_USERNAME:${HFG_DB_USERNAME:hfg}}

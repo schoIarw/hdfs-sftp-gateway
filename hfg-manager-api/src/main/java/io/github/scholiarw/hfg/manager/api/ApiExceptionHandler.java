@@ -38,6 +38,25 @@ class ApiExceptionHandler {
     return detail;
   }
 
+  @ExceptionHandler(org.springframework.web.client.RestClientException.class)
+  ProblemDetail prometheusUnavailable(org.springframework.web.client.RestClientException e) {
+    Throwable cause = e.getMostSpecificCause();
+    String reason = cause == null ? null : cause.getMessage();
+    if (reason == null || reason.isBlank()) reason = e.getMessage();
+    if (reason == null || reason.isBlank())
+      reason = cause == null ? e.getClass().getSimpleName() : cause.getClass().getSimpleName();
+    var detail = problem(HttpStatus.BAD_GATEWAY, "Prometheus 不可用", "无法访问 Prometheus：" + reason);
+    detail.setProperty("code", "PROMETHEUS_UNAVAILABLE");
+    return detail;
+  }
+
+  @ExceptionHandler(PrometheusNotEnabledException.class)
+  ProblemDetail prometheusDisabled(PrometheusNotEnabledException e) {
+    var detail = problem(HttpStatus.SERVICE_UNAVAILABLE, "Prometheus 未开启", e.getMessage());
+    detail.setProperty("code", "PROMETHEUS_DISABLED");
+    return detail;
+  }
+
   @ExceptionHandler(HfgException.class)
   ProblemDetail hfg(HfgException e) {
     HttpStatus status =

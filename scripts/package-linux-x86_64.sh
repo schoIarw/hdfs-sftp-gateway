@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.5}"
+VERSION="${1:-0.1.6}"
 ARCH="$(uname -m)"
 MEDIA_NAME="hfg-${VERSION}-linux-x86_64-native"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -84,7 +84,12 @@ find "${STAGE_DIR}" -type f ! -path '*/keepalived/*.sh' -exec chmod 0644 {} +
 SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "${ROOT_DIR}" log -1 --format=%ct 2>/dev/null || date +%s)}"
 ARCHIVE="${DIST_DIR}/${MEDIA_NAME}.tar.gz"
 mkdir -p "${DIST_DIR}"
-tar --sort=name --mtime="@${SOURCE_EPOCH}" --owner=0 --group=0 --numeric-owner \
-  -C "${DIST_DIR}" -czf "${ARCHIVE}" "${MEDIA_NAME}"
+# GNU tar before 1.28 (CentOS 7) has no --sort/--mtime support.
+if tar --help 2>/dev/null | grep -q -- '--sort'; then
+  tar --sort=name --mtime="@${SOURCE_EPOCH}" --owner=0 --group=0 --numeric-owner \
+    -C "${DIST_DIR}" -czf "${ARCHIVE}" "${MEDIA_NAME}"
+else
+  tar -C "${DIST_DIR}" -czf "${ARCHIVE}" "${MEDIA_NAME}"
+fi
 sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
 echo "${ARCHIVE}"

@@ -73,9 +73,7 @@ public final class AtomicSnapshotStore implements UserSnapshotProvider {
       payload = verifier.verify(envelope);
     } catch (RuntimeException e) {
       log.warn(
-          "Ignoring cached snapshot {}: {}（可能由其它密钥或其它服务组签发，等待控制平面下发新快照）",
-          path,
-          e.getMessage());
+          "Ignoring cached snapshot {}: {}（可能由其它密钥或其它服务组签发，等待控制平面下发新快照）", path, e.getMessage());
       return false;
     }
     if (!serviceGroupId.equals(payload.serviceGroupId())) {
