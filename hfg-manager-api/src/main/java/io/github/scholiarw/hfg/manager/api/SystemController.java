@@ -33,14 +33,25 @@ class SystemController {
   @PostMapping(value = "/hdfs-clusters/import", consumes = "multipart/form-data")
   @ResponseStatus(HttpStatus.CREATED)
   Map<String, Object> importCluster(
-      @RequestParam String id, @RequestParam String name, @RequestPart("file") MultipartFile file)
-      throws java.io.IOException {
+      @RequestParam String id, @RequestParam String name, @RequestPart("file") MultipartFile file) {
     return bundles.install(id, name, file);
+  }
+
+  @PutMapping(value = "/hdfs-clusters/{id}/authentication", consumes = "multipart/form-data")
+  Map<String, Object> reuploadAuthentication(
+      @PathVariable String id, @RequestPart("file") MultipartFile file) {
+    return bundles.reinstallAuthentication(id, file);
+  }
+
+  @DeleteMapping("/hdfs-clusters/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteCluster(@PathVariable String id) {
+    bundles.delete(id);
   }
 
   @GetMapping("/hdfs-clusters")
   List<Map<String, Object>> clusters() {
-    return db.sql("select * from hdfs_cluster order by name").query().listOfRows();
+    return bundles.list();
   }
 
   @GetMapping("/service-groups")
@@ -60,6 +71,31 @@ class SystemController {
         .param("hdfs", r.hdfsClusterId())
         .param("n", java.sql.Timestamp.from(n))
         .update();
+  }
+
+  @DeleteMapping("/service-groups/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteGroup(@PathVariable String id) {
+    List<String> gateways =
+        db.sql("select hostname from gateway_node where service_group_id=:id order by hostname")
+            .param("id", id)
+            .query(String.class)
+            .list();
+    Long users =
+        db.sql("select count(*) from ftp_user where service_group_id=:id")
+            .param("id", id)
+            .query(Long.class)
+            .single();
+    if (!gateways.isEmpty() || (users != null && users > 0))
+      throw new IllegalStateException(
+          "服务组 “"
+              + id
+              + "” 仍被 "
+              + (gateways.isEmpty() ? "" : "Gateway 节点 " + String.join("、", gateways) + " ")
+              + (users == null || users == 0 ? "" : "用户 " + users + " 个")
+              + " 引用，请先停用这些 Gateway 节点或改绑用户后再删除该服务组");
+    if (db.sql("delete from service_group where id=:id").param("id", id).update() == 0)
+      throw new NoSuchElementException("服务组 “" + id + "” 不存在");
   }
 
   @GetMapping("/gateways")

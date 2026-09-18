@@ -57,6 +57,13 @@ class ApiExceptionHandler {
     return detail;
   }
 
+  @ExceptionHandler(BundleStorageException.class)
+  ProblemDetail bundleStorage(BundleStorageException e) {
+    var detail = problem(HttpStatus.INTERNAL_SERVER_ERROR, "HDFS 配置包存储失败", e.getMessage());
+    detail.setProperty("code", "BUNDLE_STORAGE_ERROR");
+    return detail;
+  }
+
   @ExceptionHandler(HfgException.class)
   ProblemDetail hfg(HfgException e) {
     HttpStatus status =

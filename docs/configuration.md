@@ -94,6 +94,8 @@ Manager 的“监控告警”页面通过 `HFG_PROMETHEUS_URL` 代理 PromQL 查
 
 HDFS 接入只接受最大 32 MiB 的 ZIP，解压后的 XML/keytab 总量不得超过 128 MiB。包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、忽略其他文件、从 keytab 自动读取 principal，并保存 SHA-256。当前版本选择发现的第一个 keytab 及其第一个 principal，因此生产 ZIP 应只包含一个目标 keytab，并在上传前使用 `klist -kte` 确认身份。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
 
+在“系统管理 → HDFS 接入”中，可多次上传 ZIP 新建不同的 HDFS 连接，也可对已有连接执行“重新上传认证文件”替换其 XML/keytab（标识不变，`bundle_sha256` 与 principal 同步刷新，适用于 keytab 轮换或误删 `/var/lib/hfg/hdfs-bundles` 后的恢复）。`bundle_path` 文件不存在时列表会标记“文件缺失”，此时 Gateway 取不到配置包，需要重新上传。删除连接前必须先删除或改绑引用它的服务组与目录映射，否则 Manager 返回 409 并列出具体的引用对象；删除成功后 Manager 同步删除该连接的配置包目录。
+
 `krb5.conf` 不属于 HDFS ZIP 的生效内容，放入 ZIP 会被忽略。Manager 和 Gateway 的运行环境必须预先提供可用的 `/etc/krb5.conf`；容器部署应将宿主机文件只读挂载到容器同一路径。Kerberos 还依赖 KDC/DNS 可达和时钟同步。
 
 Gateway 不配置 HDFS URI、XML、principal 或 keytab。它通过 Manager mTLS gRPC 控制通道按服务组取得配置包，落盘到 `HFG_HDFS_RUNTIME_PATH` 后热更新 HDFS 客户端。客户端证书 CN、请求中的 Gateway ID 和证书登记的服务组必须一致，无需为 HDFS 包分发配置额外账号。Manager REST 仍须置于 HTTPS 反向代理和管理网访问控制之后。

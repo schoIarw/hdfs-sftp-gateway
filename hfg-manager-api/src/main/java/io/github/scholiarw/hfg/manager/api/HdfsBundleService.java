@@ -31,15 +31,19 @@ class HdfsBundleService {
     this.root = root.toAbsolutePath().normalize();
   }
 
+  /**
+   * Creates a connection or replaces its stored configuration. Uploading a ZIP is the only way a
+   * Manager learns about a Hadoop cluster, so this path doubles as "import" and "re-upload".
+   */
   @Transactional
-  Map<String, Object> install(String id, String name, MultipartFile archive) throws IOException {
-    if (!id.matches("[A-Za-z0-9][A-Za-z0-9._-]{1,63}"))
-      throw new IllegalArgumentException("Invalid HDFS cluster id");
-    if (archive.isEmpty() || archive.getSize() > MAX_ARCHIVE_BYTES)
-      throw new IllegalArgumentException("HDFS ZIP must be between 1 byte and 32 MiB");
-    Path directory = root.resolve(id).normalize();
-    if (!directory.startsWith(root)) throw new IllegalArgumentException("Invalid cluster path");
-    Path staging = Files.createTempDirectory(root(), id + "-");
+  Map<String, Object> install(String id, String name, MultipartFile archive) {
+    requireValidId(id);
+    if (name == null || name.isBlank()) throw new IllegalArgumentException("HDFS 连接名称不能为空");
+    if (archive == null || archive.isEmpty() || archive.getSize() > MAX_ARCHIVE_BYTES)
+      throw new IllegalArgumentException("HDFS 配置 ZIP 必须在 1 字节到 32 MiB 之间");
+    requireUnusedName(id, name);
+    Path directory = directory(id);
+    Path staging = createStaging(id);
     try {
       Path bundle = staging.resolve("bundle.zip");
       try (InputStream in = archive.getInputStream()) {
@@ -89,10 +93,59 @@ class HdfsBundleService {
           .param("now", java.sql.Timestamp.from(now))
           .update();
       return db.sql("select * from hdfs_cluster where id=:id").param("id", id).query().singleRow();
-    } catch (IOException | RuntimeException e) {
+    } catch (IOException e) {
+      deleteIfPresent(staging);
+      throw storageFailure("保存 HDFS 配置包", directory, e);
+    } catch (RuntimeException e) {
       deleteIfPresent(staging);
       throw e;
     }
+  }
+
+  /** Re-uploads the XML/keytab archive of an existing connection without changing its identity. */
+  @Transactional
+  Map<String, Object> reinstallAuthentication(String id, MultipartFile archive) {
+    requireValidId(id);
+    String name = String.valueOf(requireRow(id).get("name"));
+    return install(id, name, archive);
+  }
+
+  /**
+   * Removes an HDFS connection and its stored bundle. Deletion is refused while service groups or
+   * directory mappings still reference the cluster so that no runtime object is left dangling.
+   */
+  @Transactional
+  void delete(String id) {
+    requireValidId(id);
+    Map<String, Object> row = requireRow(id);
+    requireUnreferenced(
+        id,
+        db.sql("select name from service_group where hdfs_cluster_id=:id order by name")
+            .param("id", id)
+            .query(String.class)
+            .list(),
+        db.sql("select name from directory_mapping where hdfs_cluster_id=:id order by name")
+            .param("id", id)
+            .query(String.class)
+            .list());
+    db.sql("delete from hdfs_cluster where id=:id").param("id", id).update();
+    removeDirectory(
+        directory(id),
+        row.get("bundle_path") == null ? null : String.valueOf(row.get("bundle_path")));
+  }
+
+  /**
+   * Lists connections together with whether their stored authentication bundle is still present.
+   */
+  List<Map<String, Object>> list() {
+    List<Map<String, Object>> rows =
+        new ArrayList<>(db.sql("select * from hdfs_cluster order by name").query().listOfRows());
+    for (Map<String, Object> row : rows) {
+      boolean present = bundlePresent(row.get("bundle_path"));
+      row.put("bundle_available", present);
+      row.put("bundle_size_bytes", present ? sizeOf(row.get("bundle_path")) : 0L);
+    }
+    return rows;
   }
 
   Bundle bundleForGroup(String group) {
@@ -107,9 +160,95 @@ class HdfsBundleService {
     return new Bundle(path, String.valueOf(row.get("bundle_sha256")));
   }
 
+  static void requireUnreferenced(String id, List<String> groups, List<String> directories) {
+    List<String> references = new ArrayList<>();
+    if (!groups.isEmpty()) references.add("服务组 " + String.join("、", groups));
+    if (!directories.isEmpty()) references.add("目录映射 " + String.join("、", directories));
+    if (references.isEmpty()) return;
+    throw new IllegalStateException(
+        "HDFS 连接 “" + id + "” 仍被 " + String.join("；", references) + " 引用，请先改绑或删除这些对象后再删除该连接");
+  }
+
+  static void requireValidId(String id) {
+    if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._-]{1,63}"))
+      throw new IllegalArgumentException("HDFS 连接标识必须以字母或数字开头，只能包含字母、数字、点、下划线和短横线，长度 2-64 个字符");
+  }
+
+  private void requireUnusedName(String id, String name) {
+    Integer conflicts =
+        db.sql("select count(*) from hdfs_cluster where name=:name and id<>:id")
+            .param("name", name)
+            .param("id", id)
+            .query(Integer.class)
+            .single();
+    if (conflicts != null && conflicts > 0)
+      throw new IllegalStateException("HDFS 连接名称 “" + name + "” 已被其它连接占用");
+  }
+
+  private Map<String, Object> requireRow(String id) {
+    List<Map<String, Object>> rows =
+        db.sql("select * from hdfs_cluster where id=:id").param("id", id).query().listOfRows();
+    if (rows.isEmpty()) throw new NoSuchElementException("HDFS 连接 “" + id + "” 不存在");
+    return rows.get(0);
+  }
+
+  private Path directory(String id) {
+    Path directory = root.resolve(id).normalize();
+    if (!directory.startsWith(root)) throw new IllegalArgumentException("Invalid cluster path");
+    return directory;
+  }
+
   private Path root() throws IOException {
     Files.createDirectories(root);
     return root;
+  }
+
+  private Path createStaging(String id) {
+    try {
+      return Files.createTempDirectory(root(), id + "-");
+    } catch (IOException e) {
+      throw storageFailure("创建配置包临时目录", root, e);
+    }
+  }
+
+  private static BundleStorageException storageFailure(
+      String action, Path path, IOException cause) {
+    return new BundleStorageException(
+        action
+            + "失败："
+            + path
+            + "（"
+            + reason(cause)
+            + "）。请确认 Manager 运行用户对 HFG_HDFS_BUNDLE_PATH 目录有读写权限。",
+        cause);
+  }
+
+  private static String reason(Exception e) {
+    String message = e.getMessage();
+    return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
+  }
+
+  static boolean bundlePresent(Object bundlePath) {
+    return bundlePath != null && Files.isRegularFile(Path.of(String.valueOf(bundlePath)));
+  }
+
+  private static long sizeOf(Object bundlePath) {
+    try {
+      return Files.size(Path.of(String.valueOf(bundlePath)));
+    } catch (IOException | RuntimeException e) {
+      return 0L;
+    }
+  }
+
+  private static void removeDirectory(Path directory, String bundlePath) {
+    try {
+      deleteTree(directory);
+      if (bundlePath != null && !Path.of(bundlePath).normalize().startsWith(directory))
+        deleteTree(Path.of(bundlePath).normalize());
+    } catch (IOException e) {
+      throw new BundleStorageException(
+          "HDFS 连接已从数据库删除，但配置文件 “" + directory + "” 清理失败（" + reason(e) + "），请手工删除该路径。", e);
+    }
   }
 
   static List<Path> extract(Path zip, Path target) throws IOException {
@@ -161,18 +300,21 @@ class HdfsBundleService {
   }
 
   private static void replaceDirectory(Path target, Path staging) throws IOException {
-    if (Files.exists(target))
-      try (var walk = Files.walk(target)) {
-        for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
-      }
+    deleteTree(target);
     Files.createDirectories(target.getParent());
     Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
   }
 
-  private static void deleteIfPresent(Path target) {
-    if (!Files.exists(target)) return;
+  private static void deleteTree(Path target) throws IOException {
+    if (target == null || !Files.exists(target)) return;
     try (var walk = Files.walk(target)) {
-      for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+      for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
+    }
+  }
+
+  private static void deleteIfPresent(Path target) {
+    try {
+      deleteTree(target);
     } catch (IOException ignored) {
       // Best-effort cleanup; the original validation/storage exception remains authoritative.
     }

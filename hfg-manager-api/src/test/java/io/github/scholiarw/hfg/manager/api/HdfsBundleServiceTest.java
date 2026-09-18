@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.*;
 import java.util.zip.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,6 +40,43 @@ class HdfsBundleServiceTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Unsafe ZIP entry");
     assertThat(temporaryDirectory.resolve("escape.xml")).doesNotExist();
+  }
+
+  @Test
+  void allowsDeletingAnUnreferencedConnection() {
+    assertThatCode(() -> HdfsBundleService.requireUnreferenced("hadoop01", List.of(), List.of()))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void refusesToDeleteAConnectionThatIsStillReferenced() {
+    assertThatThrownBy(
+            () ->
+                HdfsBundleService.requireUnreferenced(
+                    "hadoop01", List.of("hadoop01"), List.of("landing")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("hadoop01")
+        .hasMessageContaining("服务组")
+        .hasMessageContaining("目录映射");
+  }
+
+  @Test
+  void rejectsUnsafeConnectionIdentifiers() {
+    assertThatThrownBy(() -> HdfsBundleService.requireValidId("../escape"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("HDFS 连接标识");
+    assertThatThrownBy(() -> HdfsBundleService.requireValidId("a"))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatCode(() -> HdfsBundleService.requireValidId("hadoop01")).doesNotThrowAnyException();
+  }
+
+  @Test
+  void reportsWhetherTheStoredBundleIsStillOnDisk() throws Exception {
+    Path bundle = temporaryDirectory.resolve("bundle.zip");
+    Files.writeString(bundle, "zip");
+    assertThat(HdfsBundleService.bundlePresent(bundle.toString())).isTrue();
+    assertThat(HdfsBundleService.bundlePresent(bundle + ".missing")).isFalse();
+    assertThat(HdfsBundleService.bundlePresent(null)).isFalse();
   }
 
   private Path archive(String... nameAndContent) throws IOException {
