@@ -190,7 +190,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
         if (!request.getGatewayId().equals(event.gatewayId()))
           throw new IllegalArgumentException(
               "Transfer event gateway ID does not match certificate identity");
-        if (!userBelongsToGroup(event.userId(), request.getServiceGroupId()))
+        if (userBelongsToAnotherGroup(event.userId(), request.getServiceGroupId()))
           throw new IllegalArgumentException(
               "Transfer event user does not belong to the Gateway service group");
         businessLogs.ingest(event);
@@ -309,6 +309,21 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
                 ? Status.INVALID_ARGUMENT
                 : Status.FAILED_PRECONDITION;
     return status.withDescription(exception.getMessage()).asRuntimeException();
+  }
+
+  /**
+   * Events of users that no longer exist are accepted: they are history recorded while the user was
+   * still valid, and rejecting them would leave the gateway's event queue permanently stuck. Only
+   * events attributed to a live user of another service group are rejected.
+   */
+  private boolean userBelongsToAnotherGroup(UUID userId, String serviceGroupId) {
+    Integer count =
+        db.sql("select count(*) from ftp_user where id=:id and service_group_id<>:group")
+            .param("id", userId)
+            .param("group", serviceGroupId)
+            .query(Integer.class)
+            .single();
+    return count != null && count > 0;
   }
 
   private boolean userBelongsToGroup(UUID userId, String serviceGroupId) {

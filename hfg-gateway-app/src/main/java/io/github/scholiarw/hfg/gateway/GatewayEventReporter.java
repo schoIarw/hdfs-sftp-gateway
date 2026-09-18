@@ -69,9 +69,61 @@ class GatewayEventReporter implements TransferEventSink {
       if (!prepareSending(wal, sending)) return;
       drainBatch(sending);
       runtimeStatus.healthy("event-reporting");
+    } catch (io.grpc.StatusRuntimeException exception) {
+      if (permanent(exception.getStatus().getCode())) {
+        quarantine(sending, exception);
+        runtimeStatus.healthy("event-reporting");
+        return;
+      }
+      runtimeStatus.failed("event-reporting", exception);
+      log.warn("Transfer event report failed; WAL retained: {}", exception.getMessage());
     } catch (Exception exception) {
       runtimeStatus.failed("event-reporting", exception);
       log.warn("Transfer event report failed; WAL retained: {}", exception.getMessage());
+    }
+  }
+
+  /**
+   * A permanently rejected batch (bad request, revoked identity, unknown method) can never succeed,
+   * so keeping it would block every later event behind it. Move it aside for inspection and let the
+   * queue continue.
+   */
+  private static boolean permanent(io.grpc.Status.Code code) {
+    return switch (code) {
+      case INVALID_ARGUMENT, PERMISSION_DENIED, FAILED_PRECONDITION, NOT_FOUND, UNIMPLEMENTED ->
+          true;
+      default -> false;
+    };
+  }
+
+  private void quarantine(Path sending, io.grpc.StatusRuntimeException exception) {
+    Path rejected = sending.resolveSibling(sending.getFileName() + ".rejected");
+    try {
+      List<String> lines =
+          Files.readAllLines(sending, StandardCharsets.UTF_8).stream()
+              .filter(line -> !line.isBlank())
+              .toList();
+      try (BufferedWriter writer =
+          Files.newBufferedWriter(
+              rejected,
+              StandardCharsets.UTF_8,
+              StandardOpenOption.CREATE,
+              StandardOpenOption.APPEND)) {
+        for (String line : lines) {
+          writer.write(line);
+          writer.newLine();
+        }
+      }
+      long count = lines.size();
+      Files.deleteIfExists(sending);
+      log.warn(
+          "Dropped {} permanently rejected transfer event(s) to {}: {}",
+          count,
+          rejected,
+          exception.getMessage());
+    } catch (Exception failure) {
+      runtimeStatus.failed("event-reporting", failure);
+      log.warn("Cannot quarantine rejected transfer events: {}", failure.getMessage());
     }
   }
 
