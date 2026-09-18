@@ -25,9 +25,9 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.4.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.4.jar` | FTP/SFTP Gateway |
-| `hfg-common-contract/target/hfg-common-contract-0.1.4-bootstrap.jar` | 一键生成 CA、Manager 证书和快照密钥 |
+| `hfg-manager-api/target/hfg-manager-api-0.1.5.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.5.jar` | FTP/SFTP Gateway |
+| `hfg-common-contract/target/hfg-common-contract-0.1.5-bootstrap.jar` | 一键生成 CA、Manager 证书和快照密钥 |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：
@@ -48,6 +48,7 @@ unzip -l hfg-manager-api/target/hfg-manager-api-*.jar \
 - 可访问 HDFS NameNode/DataNode；管理员需准备包含 Hadoop XML 与 keytab 的 ZIP 配置包；
 - Gateway 主备节点安装 Keepalived、curl、iproute2；
 - 网络放通 21、22、FTP PASV 端口段、8080、19090，以及 HDFS 所需端口。
+- Manager 与 Gateway 操作系统预先配置可用的 `/etc/krb5.conf`、DNS 和 NTP/Chrony；HDFS ZIP 不下发 `krb5.conf`。
 
 建立运行用户与目录：
 
@@ -107,6 +108,8 @@ sudo chmod 0640 /etc/hfg/hfg-manager-bootstrap.env /etc/hfg/pki/*.key
 并拒绝覆盖已有文件。完整的 CentOS 7/8 OpenSSL 备选流程和验证命令见
 [编译介质分步部署手册](package-deployment.md#341-centos-78-使用-openssl-手工生成-ca备选)。
 
+双 Manager 必须共享同一 CA、快照密钥和 HDFS bundle 存储，连接同一数据库；19090 使用支持 HTTP/2 的四层 mTLS 透传。仅共用数据库不足以构成可用的 Manager 高可用部署。
+
 ### 4. 配置并启动 Manager
 
 复制模板并填写数据库、管理员密码；证书密钥由单独的 bootstrap 文件提供：
@@ -120,9 +123,11 @@ systemd 会自动加载 `/etc/hfg/hfg-manager-bootstrap.env`。CA 私钥只用�
 
 前台试运行便于查看错误：
 
+以下命令使用 CentOS 7 独立 JDK 路径；其他发行版替换为已验证的 Java 17 绝对路径。
+
 ```bash
 sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-manager.env; source /etc/hfg/hfg-manager-bootstrap.env; set +a; \
-  exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
+  exec /opt/hfg/jdk-17/bin/java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-manager.jar'
 ```
 
 服务化运行：
@@ -150,15 +155,18 @@ Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.
 Gateway 的 `/etc/hfg/pki`，并把 `hfg-gateway-bootstrap.env` 安装到 `/etc/hfg/`。
 整个签发过程由 Java 完成，不调用 openssl。
 
+HDFS ZIP 只放 Hadoop XML 和一个目标 keytab；`krb5.conf` 会被忽略。上传前使用 `klist -kte` 检查 keytab。创建服务组后，应先创建用户、虚拟目录、ACL、流控和配额并发布第一个快照，再启动 Gateway；否则 readiness 会因为没有有效快照而返回 `OUT_OF_SERVICE`。
+
 Gateway 主配置只需人工填写 `HFG_RPC_HOST` 和 `HFG_NODE_IP`。节点 ID、服务组、快照公钥和
 证书路径来自下载的 bootstrap 文件。服务组 VIP 由 Manager 下发，无需在 Gateway 重复配置。
 同组两台节点仍须安全共享同一份 SFTP host key，避免 VIP 切换后主机指纹变化。
+同一服务组的操作系统主机名必须唯一。修改服务组 VIP 后需滚动重启 Gateway，使新的 FTP PASV 地址生效。
 
 直接前台运行：
 
 ```bash
 sudo -u hfg bash -c 'set -a; source /etc/hfg/hfg-gateway.env; source /etc/hfg/hfg-gateway-bootstrap.env; set +a; \
-  exec java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-gateway.jar'
+  exec /opt/hfg/jdk-17/bin/java -XX:MaxRAMPercentage=75 -jar /opt/hfg/hfg-gateway.jar'
 ```
 
 生产建议使用仓库提供的 systemd unit。它以非 root 用户运行，并仅授予绑定 21/22 低位端口所需的 `CAP_NET_BIND_SERVICE`：
@@ -181,7 +189,7 @@ sudo install -o root -g root -m 0755 deploy/keepalived/hfg-gateway-health.sh /us
 sudo install -o root -g root -m 0755 deploy/keepalived/hfg-role-change.sh /usr/local/bin/
 sudo cp deploy/keepalived/keepalived.conf.template /etc/keepalived/keepalived.conf
 sudoedit /etc/keepalived/keepalived.conf
-sudo keepalived --config-test=/etc/keepalived/keepalived.conf
+sudo keepalived -t -f /etc/keepalived/keepalived.conf
 sudo systemctl enable --now keepalived
 ```
 
@@ -232,7 +240,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ### 3. 构建并运行 Gateway 镜像
 
 ```bash
-docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.4 .
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.5 .
 ```
 
 FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
@@ -244,12 +252,13 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   --env-file /etc/hfg/hfg-gateway-bootstrap.env \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
-  hfg-gateway:0.1.4
+  -v /etc/krb5.conf:/etc/krb5.conf:ro \
+  hfg-gateway:0.1.5
 ```
 
 镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。
 
-每个主备节点分别运行一个 Gateway 容器，配置原则与 Native 模式相同。Keepalived 建议仍运行在宿主机，并通过本机 `18080` readiness 与 21/22 监听状态决定是否持有 VIP。
+每个主备节点分别运行一个 Gateway 容器，配置原则与 Native 模式相同。Keepalived 建议仍运行在宿主机；健康脚本支持名为 `hfg-gateway` 的容器和 Compose 的 `hfg-gateway` 服务，并按环境文件读取管理端口。中央 Prometheus 抓取时需设置 `HFG_MANAGEMENT_BIND=0.0.0.0` 或管理网 IP，并通过防火墙限制来源。
 
 ### 4. Docker 验收与停止
 

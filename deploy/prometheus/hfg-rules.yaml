@@ -20,7 +20,7 @@ groups:
         annotations:
           summary: "HFG JVM heap usage is above 90%"
       - alert: HfgProcessCpuHigh
-        expr: process_cpu_usage{application=~"hfg-manager-api|hfg-gateway-app"} > 0.90
+        expr: process_cpu_usage{application=~"hfg-manager-api|hfg-gateway"} > 0.90
         for: 10m
         labels:
           severity: warning

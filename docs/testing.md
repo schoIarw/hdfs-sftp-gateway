@@ -95,6 +95,10 @@ npm run build
 | CFG-09 | 同一服务组内两台 Gateway 上报相同操作系统主机名 | Manager 拒绝后注册节点，Gateway 日志明确显示重复主机名和服务组 |
 | CFG-10 | 运行 `hfg-bootstrap.jar` 后再次对同一目录运行 | 首次证书链/SAN/快照签名校验通过；第二次拒绝覆盖任何已有密钥 |
 | CFG-11 | 下载 Gateway 证书 ZIP | 包内身份、服务组、证书路径和快照公钥完整；仅填写 RPC Host/节点 IP 即可启动 |
+| CFG-12 | 未发布快照或 HDFS bundle 尚未安装 | Gateway 进程可启动但 readiness 为 `OUT_OF_SERVICE`，Keepalived 不持有 VIP；完成配置后自动恢复 |
+| CFG-13 | Native systemd 与 Docker 两种运行方式执行健康脚本 | 都能识别运行实例；按实际管理端口和已启用协议检查，任一必需端口/readiness 失败时退出非零 |
+| CFG-14 | HDFS ZIP 中附带 `krb5.conf`，宿主机未配置 Kerberos | ZIP 内文件被忽略并明确排错；安装宿主机 `/etc/krb5.conf` 后恢复 |
+| CFG-15 | 两台 Manager 共库但缺少共享 bundle 或使用不同 CA/快照密钥 | 验收必须失败；补齐共享材料和四层 mTLS 透传后跨实例下载、签发与快照更新成功 |
 
 ## 7. 安全测试
 
@@ -120,3 +124,4 @@ npm run build
 4. 触发配额预留、提交、过期释放，确认 `QUOTA` 快照与管理库最终值一致。
 5. 查询总览、用户历史、实时连接、流控当前/历史接口，确认 SQL 使用 `log_date` 分区裁剪。
 6. 抓取 `/actuator/prometheus`，确认不再存在文件路径、用户名、transfer ID 或业务传输计数；JVM、进程、线程、Hikari 和健康指标仍可用。
+7. 使用中央 Prometheus 抓取绑定管理网地址的 Gateway，确认 Targets 为 `UP`，且 `HfgProcessCpuHigh` 能匹配 `application="hfg-gateway"`。

@@ -37,7 +37,7 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | HFG_SFTP_HOST_KEY | 默认 `/etc/hfg/ssh_host_ed25519_key`；启用 SFTP 时文件必须存在且可读，同组节点必须一致 |
 | HFG_HDFS_RUNTIME_PATH | `/var/lib/hfg/hdfs-runtime`，Manager 下发的 HDFS 配置落盘目录 |
 | HFG_HDFS_REFRESH_INTERVAL | `PT1M`，检查 HDFS 配置包更新的周期 |
-| HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | `127.0.0.1:18080`，Gateway 自身 readiness/Prometheus 端口，不是 Manager 地址 |
+| HFG_MANAGEMENT_BIND / HFG_MANAGEMENT_PORT | `127.0.0.1:18080`，Gateway 自身 readiness/Prometheus 端口，不是 Manager 地址；中央 Prometheus 抓取时需绑定管理网 IP 或 `0.0.0.0` 并配合防火墙 |
 | HFG_FTP_PORT / HFG_SFTP_PORT | `21` / `22` |
 | HFG_FTP_PASSIVE_PORTS | `30000-31000` |
 | HFG_SNAPSHOT_PATH / HFG_EVENT_WAL_PATH | `/var/lib/hfg/snapshot.json` / `/var/lib/hfg/events.wal` |
@@ -46,7 +46,9 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | HFG_FTP_BIND / HFG_SFTP_BIND | 均为 `0.0.0.0` |
 | HFG_FTP_ACTIVE_MODE / HFG_FTP_IDLE_TIMEOUT | `false` / `300` 秒 |
 
-主机名由操作系统自动获取，软件版本从 JAR Manifest 自动读取。`HFG_ROLE`、`HFG_VIP`、`HFG_MANAGER_URL`、`HFG_MANAGER_USERNAME`、`HFG_MANAGER_PASSWORD`、`HFG_SOFTWARE_VERSION` 和 `HFG_RPC_HOSTNAME` 已取消。
+主机名由操作系统自动获取，软件版本从 JAR Manifest 自动读取。同一服务组内每台 Gateway 的操作系统主机名必须唯一，否则 Manager 会拒绝重复主机名的心跳。`HFG_ROLE`、`HFG_VIP`、`HFG_MANAGER_URL`、`HFG_MANAGER_USERNAME`、`HFG_MANAGER_PASSWORD`、`HFG_SOFTWARE_VERSION` 和 `HFG_RPC_HOSTNAME` 已取消。
+
+Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地址。修改服务组 VIP 后必须滚动重启该组 Gateway，先重启 Standby、切换 VIP，再重启另一台。
 
 ## Gateway 端口
 
@@ -84,7 +86,9 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 `HFG_RPC_SERVER_KEY`、`HFG_RPC_CA`、`HFG_RPC_CA_KEY` 由初始化工具写入单独的
 `/etc/hfg/hfg-manager-bootstrap.env`，不要复制到主配置文件。
 
-HDFS 接入只接受最大 32 MiB 的 ZIP，包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、限制解压后总体积、忽略其他文件，从 keytab 自动读取 principal，并保存 SHA-256。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
+HDFS 接入只接受最大 32 MiB 的 ZIP，解压后的 XML/keytab 总量不得超过 128 MiB。包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、忽略其他文件、从 keytab 自动读取 principal，并保存 SHA-256。当前版本选择发现的第一个 keytab 及其第一个 principal，因此生产 ZIP 应只包含一个目标 keytab，并在上传前使用 `klist -kte` 确认身份。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
+
+`krb5.conf` 不属于 HDFS ZIP 的生效内容，放入 ZIP 会被忽略。Manager 和 Gateway 的运行环境必须预先提供可用的 `/etc/krb5.conf`；容器部署应将宿主机文件只读挂载到容器同一路径。Kerberos 还依赖 KDC/DNS 可达和时钟同步。
 
 Gateway 不配置 HDFS URI、XML、principal 或 keytab。它通过 Manager mTLS gRPC 控制通道按服务组取得配置包，落盘到 `HFG_HDFS_RUNTIME_PATH` 后热更新 HDFS 客户端。客户端证书 CN、请求中的 Gateway ID 和证书登记的服务组必须一致，无需为 HDFS 包分发配置额外账号。Manager REST 仍须置于 HTTPS 反向代理和管理网访问控制之后。
 
@@ -122,7 +126,17 @@ SFTP host key 不纳入每节点自动生成：同一 VIP 服务组的两台 Gat
 
 ## Keepalived
 
-为每个服务组从 `deploy/keepalived/keepalived.conf.template` 生成配置。主备必须使用相同 VRID/认证信息和不同优先级，单播地址互指。健康脚本同时检查 systemd、21/22 监听端口和 readiness。Keepalived 决定 VIP 当前归属，Gateway 本身不再维护 Active/Standby 角色。
+为每个服务组从 `deploy/keepalived/keepalived.conf.template` 生成配置。主备必须使用相同 VRID/认证信息和不同优先级，单播地址互指。健康脚本同时支持 Native systemd 与名为 `hfg-gateway`（或 Compose 服务名为 `hfg-gateway`）的 Docker 容器，并按环境文件检查已启用协议的监听端口、实际 `HFG_MANAGEMENT_PORT` 和 readiness。Keepalived 决定 VIP 当前归属，Gateway 本身不再维护 Active/Standby 角色。
+
+## Manager 高可用约束
+
+两台 Manager 不能只共用数据库。所有实例必须使用同一套 CA、快照签名密钥，并共享或可靠同步 `HFG_HDFS_BUNDLE_PATH`；否则 Gateway 经负载均衡访问不同实例时会出现客户端证书不被认可、快照验签不一致或 HDFS bundle 不存在。建议把 `/etc/hfg/hfg-manager-bootstrap.env`、`/etc/hfg/pki` 作为受控 Secret 分发，把 `/var/lib/hfg/hdfs-bundles` 放在共享存储，并同时备份管理库、日志库、CA 私钥、快照私钥和 HDFS bundle。
+
+Manager 的 19090 端口使用双向 TLS gRPC。负载均衡必须采用支持 HTTP/2 长连接的四层 TCP 透传，TLS 在 Manager 进程终止，不能使用不转发客户端证书的普通七层 HTTPS 终止方式。Manager 服务端证书 SAN 应包含 Gateway 实际连接的统一 LB/DNS 地址。
+
+## Prometheus 可达性
+
+Gateway 默认只在 `127.0.0.1:18080` 暴露 Actuator，适合本机 Keepalived。中央 Prometheus 需要设置 `HFG_MANAGEMENT_BIND` 为管理网 IP或 `0.0.0.0`，并用防火墙仅允许 Prometheus 访问。同步修改 `deploy/prometheus/prometheus.yaml` 中的 Manager/Gateway 目标，启动后在 Prometheus Targets 页面确认全部为 `UP`。业务上传、下载、速率和配额仍只查询 `logs`，不写入 Prometheus。
 
 
 ## 管理库与业务日志库

@@ -1,6 +1,6 @@
 services:
   hfg-gateway:
-    image: hfg-gateway:${HFG_VERSION:-0.1.4}
+    image: hfg-gateway:${HFG_VERSION:-0.1.5}
     platform: linux/amd64
     network_mode: host
     restart: unless-stopped
@@ -12,3 +12,4 @@ services:
     volumes:
       - /var/lib/hfg:/var/lib/hfg
       - /etc/hfg:/etc/hfg:ro
+      - /etc/krb5.conf:/etc/krb5.conf:ro

@@ -1,7 +1,7 @@
 MVN ?= ./mvnw
 
 .PHONY: verify package dist-x64 dist-native-x64 prepare-docker-x64 backend frontend clean
-VERSION ?= 0.1.4
+VERSION ?= 0.1.5
 verify: frontend backend
 
 package: verify
