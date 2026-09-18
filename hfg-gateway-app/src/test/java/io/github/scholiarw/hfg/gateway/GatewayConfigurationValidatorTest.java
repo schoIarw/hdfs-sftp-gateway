@@ -66,7 +66,8 @@ class GatewayConfigurationValidatorTest {
             valid.rpc(),
             valid.hdfs(),
             valid.ftp(),
-            new GatewayProperties.Sftp(true, "0.0.0.0", 22, temp.resolve("missing-host-key")));
+            new GatewayProperties.Sftp(
+                true, "0.0.0.0", 22, temp.resolve("missing-host-key"), null));
     IllegalStateException exception =
         assertThrows(
             IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
@@ -84,7 +85,8 @@ class GatewayConfigurationValidatorTest {
             valid.rpc(),
             valid.hdfs(),
             valid.ftp(),
-            new GatewayProperties.Sftp(false, "0.0.0.0", 22, temp.resolve("unused-host-key")));
+            new GatewayProperties.Sftp(
+                false, "0.0.0.0", 22, temp.resolve("unused-host-key"), null));
     assertDoesNotThrow(() -> GatewayConfigurationValidator.validate(ftpOnly));
   }
 
@@ -114,6 +116,6 @@ class GatewayConfigurationValidatorTest {
             Duration.ofSeconds(10)),
         new GatewayProperties.Hdfs(temp.resolve("hdfs-runtime"), Duration.ofMinutes(1)),
         new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300),
-        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey));
+        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey, null));
   }
 }

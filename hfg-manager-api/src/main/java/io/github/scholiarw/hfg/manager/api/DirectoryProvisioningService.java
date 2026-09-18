@@ -60,6 +60,8 @@ class DirectoryProvisioningService {
         long nq = ((Number) r.get("namespace_quota")).longValue(),
             sq = ((Number) r.get("space_quota_bytes")).longValue();
         if (nq >= 0 || sq >= 0) storage.setQuota(path, nq, sq);
+      } finally {
+        factory.close();
       }
       db.sql(
               "update directory_mapping set provisioning_status='READY',provisioning_error=null,provisioned_at=:n,updated_at=:n where id=:id")

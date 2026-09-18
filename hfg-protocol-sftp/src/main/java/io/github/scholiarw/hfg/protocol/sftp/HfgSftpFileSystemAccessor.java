@@ -9,6 +9,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.*;
+import java.security.Principal;
 import java.util.*;
 import org.apache.sshd.sftp.server.*;
 
@@ -147,6 +148,47 @@ public final class HfgSftpFileSystemAccessor implements SftpFileSystemAccessor {
   @Override
   public String resolveLinkTarget(SftpSubsystemProxy subsystem, Path link) throws IOException {
     throw new UnsupportedOperationException("Links are disabled");
+  }
+
+  @Override
+  public void setFilePermissions(
+      SftpSubsystemProxy subsystem,
+      Path file,
+      Set<PosixFilePermission> perms,
+      LinkOption... options) {
+    throw new UnsupportedOperationException("Changing HDFS permissions through SFTP is disabled");
+  }
+
+  @Override
+  public void setFileOwner(
+      SftpSubsystemProxy subsystem, Path file, Principal value, LinkOption... options) {
+    throw new UnsupportedOperationException("Changing HDFS ownership through SFTP is disabled");
+  }
+
+  @Override
+  public void setGroupOwner(
+      SftpSubsystemProxy subsystem, Path file, Principal value, LinkOption... options) {
+    throw new UnsupportedOperationException(
+        "Changing HDFS group ownership through SFTP is disabled");
+  }
+
+  @Override
+  public void setFileAccessControl(
+      SftpSubsystemProxy subsystem, Path file, List<AclEntry> acl, LinkOption... options) {
+    throw new UnsupportedOperationException("Changing HDFS ACLs through SFTP is disabled");
+  }
+
+  @Override
+  public UserPrincipal resolveFileOwner(
+      SftpSubsystemProxy subsystem, Path file, UserPrincipal name) {
+    throw new UnsupportedOperationException("Changing HDFS ownership through SFTP is disabled");
+  }
+
+  @Override
+  public GroupPrincipal resolveGroupOwner(
+      SftpSubsystemProxy subsystem, Path file, GroupPrincipal name) {
+    throw new UnsupportedOperationException(
+        "Changing HDFS group ownership through SFTP is disabled");
   }
 
   @Override

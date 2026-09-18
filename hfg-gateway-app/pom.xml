@@ -8,7 +8,7 @@
     <dependency><groupId>io.github.scholiarw.hfg</groupId><artifactId>hfg-gateway-control-client</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
-    <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-crypto</artifactId></dependency>
+    <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-crypto</artifactId></dependency><dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId></dependency>
     <dependency><groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId></dependency>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-configuration-processor</artifactId><optional>true</optional></dependency>

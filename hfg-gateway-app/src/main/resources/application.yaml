@@ -43,3 +43,5 @@ hfg:
     bind-address: ${HFG_SFTP_BIND:0.0.0.0}
     port: ${HFG_SFTP_PORT:22}
     host-key-path: ${HFG_SFTP_HOST_KEY:/etc/hfg/ssh_host_ed25519_key}
+    # 留空时自动识别已有主机密钥类型（EC/EdDSA/RSA），无法识别时按 MINA 默认 EC 生成
+    host-key-algorithm: ${HFG_SFTP_HOST_KEY_ALGORITHM:}

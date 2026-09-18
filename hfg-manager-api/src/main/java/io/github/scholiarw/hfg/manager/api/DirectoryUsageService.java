@@ -56,6 +56,8 @@ class DirectoryUsageService {
         result.put("spaceQuotaBytes", usage.spaceQuotaBytes());
         result.put("spaceUsedBytes", usage.spaceConsumedBytes());
         result.put("available", true);
+      } finally {
+        factory.close();
       }
     } catch (Exception exception) {
       result.put("available", false);

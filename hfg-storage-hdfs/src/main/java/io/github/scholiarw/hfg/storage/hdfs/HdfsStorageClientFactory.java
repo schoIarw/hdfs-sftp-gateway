@@ -6,7 +6,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -16,6 +19,13 @@ public final class HdfsStorageClientFactory implements StorageClientFactory {
   private final Configuration configuration;
   private final UserGroupInformation loginUser;
   private final boolean proxyUsers;
+
+  /**
+   * One HDFS client per effective user. Creating a {@code FileSystem} per operation costs a
+   * DFSClient with its RPC connection, threads and (with Kerberos) a keytab login - measurable for
+   * metadata heavy workloads. The pool is closed when the HDFS configuration is replaced.
+   */
+  private final Map<UserGroupInformation, HdfsStorageClient> clients = new ConcurrentHashMap<>();
 
   public HdfsStorageClientFactory(Settings settings) throws IOException {
     configuration = HadoopConfigurationLoader.load(settings.configurationResources());
@@ -72,15 +82,39 @@ public final class HdfsStorageClientFactory implements StorageClientFactory {
         proxyUsers && effectiveUser != null && !effectiveUser.isBlank()
             ? UserGroupInformation.createProxyUser(effectiveUser, loginUser)
             : loginUser;
+    HdfsStorageClient existing = clients.get(actor);
+    if (existing != null) return existing;
+    HdfsStorageClient created = newClient(actor);
+    HdfsStorageClient raced = clients.putIfAbsent(actor, created);
+    if (raced != null) {
+      created.close();
+      return raced;
+    }
+    return created;
+  }
+
+  private HdfsStorageClient newClient(UserGroupInformation actor) throws IOException {
     try {
       FileSystem fs =
           actor.doAs(
               (PrivilegedExceptionAction<FileSystem>) () -> FileSystem.newInstance(configuration));
-      return new HdfsStorageClient(fs);
+      return new HdfsStorageClient(fs, false);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IOException("Interrupted while creating HDFS client", e);
     }
+  }
+
+  /** Closes every pooled client; called when the HDFS configuration is replaced. */
+  public void close() {
+    for (HdfsStorageClient client : new ArrayList<>(clients.values())) {
+      try {
+        client.close();
+      } catch (IOException ignored) {
+        // best effort - the configuration is being replaced anyway
+      }
+    }
+    clients.clear();
   }
 
   public record Settings(

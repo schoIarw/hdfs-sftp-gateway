@@ -11,9 +11,15 @@ import org.apache.hadoop.fs.*;
 
 public final class HdfsStorageClient implements StorageClient {
   private final FileSystem fileSystem;
+  private final boolean closeFileSystem;
 
   public HdfsStorageClient(FileSystem fileSystem) {
+    this(fileSystem, true);
+  }
+
+  public HdfsStorageClient(FileSystem fileSystem, boolean closeFileSystem) {
     this.fileSystem = fileSystem;
+    this.closeFileSystem = closeFileSystem;
   }
 
   @Override
@@ -167,7 +173,8 @@ public final class HdfsStorageClient implements StorageClient {
 
   @Override
   public void close() throws IOException {
-    fileSystem.close();
+    // Pooled clients stay open for the lifetime of the factory; only owners close the FileSystem.
+    if (closeFileSystem) fileSystem.close();
   }
 
   private static Path path(String value) {

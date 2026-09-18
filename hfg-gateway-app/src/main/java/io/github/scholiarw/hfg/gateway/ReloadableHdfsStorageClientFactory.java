@@ -12,9 +12,12 @@ final class ReloadableHdfsStorageClientFactory implements StorageClientFactory {
 
   void install(String defaultFs, List<String> resources, String principal, String keytab)
       throws IOException {
-    delegate.set(
-        new HdfsStorageClientFactory(
-            new HdfsStorageClientFactory.Settings(defaultFs, resources, principal, keytab, false)));
+    HdfsStorageClientFactory previous =
+        delegate.getAndSet(
+            new HdfsStorageClientFactory(
+                new HdfsStorageClientFactory.Settings(
+                    defaultFs, resources, principal, keytab, false)));
+    if (previous != null) previous.close();
   }
 
   boolean ready() {

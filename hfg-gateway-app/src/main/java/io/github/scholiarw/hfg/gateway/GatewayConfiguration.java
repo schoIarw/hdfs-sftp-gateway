@@ -153,7 +153,8 @@ class GatewayConfiguration {
     var auth = new HfgSftpAuthenticator(users, verifier, Clock.systemUTC());
     var server =
         new HfgSftpServer(
-            new HfgSftpServer.Settings(s.bindAddress(), s.port(), s.hostKeyPath()),
+            new HfgSftpServer.Settings(
+                s.bindAddress(), s.port(), s.hostKeyPath(), s.hostKeyAlgorithm()),
             auth,
             new HfgSftpFileSystemAccessor(users, transfers, p.gatewayId()));
     if (s.enabled()) server.start();

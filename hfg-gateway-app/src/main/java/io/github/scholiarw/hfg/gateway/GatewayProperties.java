@@ -41,5 +41,6 @@ public record GatewayProperties(
       boolean activeModeEnabled,
       int idleTimeoutSeconds) {}
 
-  public record Sftp(boolean enabled, String bindAddress, int port, Path hostKeyPath) {}
+  public record Sftp(
+      boolean enabled, String bindAddress, int port, Path hostKeyPath, String hostKeyAlgorithm) {}
 }

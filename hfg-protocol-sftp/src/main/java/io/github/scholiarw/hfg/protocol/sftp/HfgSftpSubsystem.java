@@ -156,10 +156,19 @@ final class HfgSftpSubsystem extends SftpSubsystem {
     listener.creating(session, resolved, attrs);
     try {
       getFileSystemAccessor().createDirectory(this, resolved);
-      doSetAttributes(SftpConstants.SSH_FXP_MKDIR, "", resolved, attrs, true);
     } catch (IOException | RuntimeException | Error e) {
       listener.created(session, resolved, attrs, e);
       throw e;
+    }
+    try {
+      doSetAttributes(SftpConstants.SSH_FXP_MKDIR, "", resolved, attrs, true);
+    } catch (IOException | RuntimeException attributeFailure) {
+      // The directory exists; HDFS does not store POSIX attributes, so a rejected attribute
+      // (OpenSSH always sends the requested mode) must not turn a successful mkdir into an error.
+      log.warn(
+          "Ignoring SFTP attributes of created directory {}: {}",
+          resolved,
+          attributeFailure.getMessage());
     }
     listener.created(session, resolved, attrs, null);
   }

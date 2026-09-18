@@ -33,7 +33,8 @@ public final class TransferService {
   public List<StorageEntry> list(TransferContext context, String path, String token, int pageSize)
       throws IOException {
     var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
-    try (var storage = storage(context)) {
+    var storage = storage(context);
+    {
       return storage.list(resolved.storagePath(), token, pageSize).stream()
           .filter(entry -> !STAGING_DIRECTORY.equals(entry.name()))
           .toList();
@@ -42,7 +43,8 @@ public final class TransferService {
 
   public StorageEntry stat(TransferContext context, String path) throws IOException {
     var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
-    try (var storage = storage(context)) {
+    var storage = storage(context);
+    {
       return storage.stat(resolved.storagePath());
     }
   }
@@ -63,7 +65,6 @@ public final class TransferService {
           limiter.open(context.user(), TransferDirection.DOWNLOAD),
           events);
     } catch (Exception e) {
-      storage.close();
       throw e;
     }
   }
@@ -101,21 +102,22 @@ public final class TransferService {
           limiter.open(context.user(), TransferDirection.UPLOAD),
           events);
     } catch (Exception e) {
-      storage.close();
       throw e;
     }
   }
 
   public void mkdirs(TransferContext context, String path) throws IOException {
     var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
-    try (var storage = storage(context)) {
+    var storage = storage(context);
+    {
       storage.mkdirs(resolved.storagePath());
     }
   }
 
   public void delete(TransferContext context, String path, boolean recursive) throws IOException {
     var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
-    try (var storage = storage(context)) {
+    var storage = storage(context);
+    {
       IOException failure = null;
       boolean deleted;
       try {
@@ -153,7 +155,8 @@ public final class TransferService {
       throws IOException {
     var from = policy.requireWrite(context.user(), context.workingDirectory(), source);
     var to = policy.requireWrite(context.user(), context.workingDirectory(), target);
-    try (var storage = storage(context)) {
+    var storage = storage(context);
+    {
       if (storage.exists(to.storagePath())) {
         if (!overwrite) throw new HfgException(HfgErrorCode.ALREADY_EXISTS, "Target exists");
         storage.delete(to.storagePath(), false);
@@ -282,12 +285,6 @@ public final class TransferService {
       } catch (IOException e) {
         failure = e;
       }
-      try {
-        storage.close();
-      } catch (IOException e) {
-        if (failure == null) failure = e;
-        else failure.addSuppressed(e);
-      }
       permit.complete(failure == null);
       events.publish(
           event(
@@ -380,12 +377,6 @@ public final class TransferService {
         } catch (IOException e) {
           failure = e;
         }
-      try {
-        storage.close();
-      } catch (IOException e) {
-        if (failure == null) failure = e;
-        else failure.addSuppressed(e);
-      }
       permit.complete(completed && failure == null);
       events.publish(
           event(
