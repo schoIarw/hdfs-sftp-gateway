@@ -40,13 +40,19 @@ class HdfsBundleSynchronizer {
     try {
       GrpcControlClient.HdfsBundle bundle = control.downloadHdfsBundle();
       byte[] zip = bundle.zip();
-      if (zip == null || zip.length == 0) return;
+      if (zip == null || zip.length == 0)
+        throw new IllegalStateException("HDFS configuration bundle is empty");
       if (zip.length > MAX_ZIP_BYTES)
         throw new IllegalArgumentException("HDFS configuration ZIP is too large");
       String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(zip));
       if (!hash.equalsIgnoreCase(bundle.sha256()))
         throw new IllegalArgumentException("HDFS configuration digest mismatch");
-      if (hash.equals(installedHash) && storage.ready()) return;
+      if (hash.equals(installedHash) && storage.ready()) {
+        // Nothing to install, but the configuration is present and valid: clear any failure left
+        // over from an earlier Manager outage instead of staying degraded forever.
+        runtimeStatus.healthy("hdfs");
+        return;
+      }
       install(zip, hash);
       runtimeStatus.healthy("hdfs");
     } catch (Exception e) {

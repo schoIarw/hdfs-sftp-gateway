@@ -66,7 +66,12 @@ class GatewayEventReporter implements TransferEventSink {
     Path wal = properties.snapshot().eventWalPath();
     Path sending = wal.resolveSibling(wal.getFileName() + ".sending");
     try {
-      if (!prepareSending(wal, sending)) return;
+      if (!prepareSending(wal, sending)) {
+        // An empty queue means reporting is working (or has just caught up), so a failure recorded
+        // during an earlier outage must not keep the gateway marked as degraded.
+        runtimeStatus.healthy("event-reporting");
+        return;
+      }
       drainBatch(sending);
       runtimeStatus.healthy("event-reporting");
     } catch (io.grpc.StatusRuntimeException exception) {
