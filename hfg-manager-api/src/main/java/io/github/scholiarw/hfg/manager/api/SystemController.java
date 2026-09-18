@@ -8,12 +8,15 @@ import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/system")
 class SystemController {
+  private static final org.slf4j.Logger log =
+      org.slf4j.LoggerFactory.getLogger(SystemController.class);
   private final JdbcClient db;
   private final HdfsBundleService bundles;
   private final GatewayCertificateService certificates;
@@ -82,6 +85,7 @@ class SystemController {
 
   @DeleteMapping("/service-groups/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
+  @Transactional
   void deleteGroup(@PathVariable String id) {
     List<String> gateways =
         db.sql("select hostname from gateway_node where service_group_id=:id order by hostname")
@@ -101,8 +105,21 @@ class SystemController {
               + (gateways.isEmpty() ? "" : "Gateway 节点 " + String.join("、", gateways) + " ")
               + (users == null || users == 0 ? "" : "用户 " + users + " 个")
               + " 引用，请先停用这些 Gateway 节点或改绑用户后再删除该服务组");
+    // Certificates and snapshots only exist to serve this group's gateways, so they are removed
+    // with it; otherwise the foreign keys would make the group undeletable for good.
+    int certificates =
+        db.sql("delete from gateway_certificate where service_group_id=:id")
+            .param("id", id)
+            .update();
+    int snapshots =
+        db.sql("delete from config_snapshot where service_group_id=:id").param("id", id).update();
     if (db.sql("delete from service_group where id=:id").param("id", id).update() == 0)
       throw new NoSuchElementException("服务组 “" + id + "” 不存在");
+    log.info(
+        "Deleted service group {} and its {} certificate(s) and {} snapshot(s)",
+        id,
+        certificates,
+        snapshots);
   }
 
   @GetMapping("/gateways")
