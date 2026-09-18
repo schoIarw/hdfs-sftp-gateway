@@ -166,7 +166,7 @@ class HdfsBundleService {
     if (!directories.isEmpty()) references.add("目录映射 " + String.join("、", directories));
     if (references.isEmpty()) return;
     throw new IllegalStateException(
-        "HDFS 连接 “" + id + "” 仍被 " + String.join("；", references) + " 引用，请先改绑或删除这些对象后再删除该连接");
+        "HDFS 连接 “" + id + "” 仍被以下对象引用：" + String.join("、", references) + "；请先改绑或删除这些对象后再删除该连接");
   }
 
   static void requireValidId(String id) {
