@@ -7,8 +7,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class AtomicSnapshotStore implements UserSnapshotProvider {
+  private static final Logger log = LoggerFactory.getLogger(AtomicSnapshotStore.class);
   private final Path path;
   private final ObjectMapper mapper;
   private final SnapshotVerifier verifier;
@@ -48,11 +51,42 @@ public final class AtomicSnapshotStore implements UserSnapshotProvider {
     return true;
   }
 
+  /**
+   * Loads the snapshot cached on disk.
+   *
+   * <p>A cached snapshot becomes unusable whenever the manager rotates the snapshot signing key or
+   * the node is moved to another service group. That must never prevent the gateway from starting:
+   * the entry is ignored, a warning is logged and the gateway fetches a fresh snapshot from the
+   * control plane.
+   */
   public synchronized boolean loadIfPresent() throws IOException {
     if (!Files.exists(path)) return false;
-    SignedSnapshotEnvelope envelope =
-        mapper.readValue(Files.readString(path), SignedSnapshotEnvelope.class);
-    current.set(verifier.verify(envelope));
+    SignedSnapshotEnvelope envelope;
+    try {
+      envelope = mapper.readValue(Files.readString(path), SignedSnapshotEnvelope.class);
+    } catch (IOException | RuntimeException e) {
+      log.warn("Ignoring unreadable cached snapshot {}: {}", path, e.getMessage());
+      return false;
+    }
+    SnapshotPayload payload;
+    try {
+      payload = verifier.verify(envelope);
+    } catch (RuntimeException e) {
+      log.warn(
+          "Ignoring cached snapshot {}: {}（可能由其它密钥或其它服务组签发，等待控制平面下发新快照）",
+          path,
+          e.getMessage());
+      return false;
+    }
+    if (!serviceGroupId.equals(payload.serviceGroupId())) {
+      log.warn(
+          "Ignoring cached snapshot {}: it belongs to service group {} instead of {}",
+          path,
+          payload.serviceGroupId(),
+          serviceGroupId);
+      return false;
+    }
+    current.set(payload);
     return true;
   }
 
