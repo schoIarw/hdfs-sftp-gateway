@@ -9,8 +9,11 @@ import org.apache.ftpserver.usermanager.UsernamePasswordAuthentication;
 import org.apache.ftpserver.usermanager.impl.BaseUser;
 import org.apache.ftpserver.usermanager.impl.ConcurrentLoginPermission;
 import org.apache.ftpserver.usermanager.impl.WritePermission;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class HfgFtpUserManager implements UserManager {
+  private static final Logger log = LoggerFactory.getLogger(HfgFtpUserManager.class);
   private final UserSnapshotProvider users;
   private final CredentialVerifier credentials;
   private final Clock clock;
@@ -61,11 +64,17 @@ public final class HfgFtpUserManager implements UserManager {
         users
             .findByUsername(login.getUsername())
             .filter(u -> u.canLoginAt(clock.instant()))
-            .orElseThrow(() -> new AuthenticationFailedException("Invalid credentials"));
-    if (snapshot.passwordHash() == null
-        || !credentials.matches(login.getPassword(), snapshot.passwordHash())) {
+            .orElse(null);
+    if (snapshot == null) {
+      log.warn("FTP login rejected user={} reason=unknown-or-disabled", login.getUsername());
       throw new AuthenticationFailedException("Invalid credentials");
     }
+    if (snapshot.passwordHash() == null
+        || !credentials.matches(login.getPassword(), snapshot.passwordHash())) {
+      log.warn("FTP login rejected user={} reason=bad-password", login.getUsername());
+      throw new AuthenticationFailedException("Invalid credentials");
+    }
+    log.info("FTP login user={} result=ok", snapshot.username());
     return toFtpUser(snapshot);
   }
 

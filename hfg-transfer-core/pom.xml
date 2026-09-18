@@ -5,6 +5,7 @@
     <dependency><groupId>io.github.scholiarw.hfg</groupId><artifactId>hfg-storage-api</artifactId></dependency>
     <dependency><groupId>io.github.scholiarw.hfg</groupId><artifactId>hfg-policy-engine</artifactId></dependency>
     <dependency><groupId>io.github.scholiarw.hfg</groupId><artifactId>hfg-traffic-control</artifactId></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
   </dependencies>
 </project>

@@ -45,3 +45,9 @@ hfg:
     host-key-path: ${HFG_SFTP_HOST_KEY:/etc/hfg/ssh_host_ed25519_key}
     # 留空时自动识别已有主机密钥类型（EC/EdDSA/RSA），无法识别时按 MINA 默认 EC 生成
     host-key-algorithm: ${HFG_SFTP_HOST_KEY_ALGORITHM:}
+logging:
+  level:
+    # Apache FtpServer 默认逐条打印命令与应答（FtpLoggingFilter 的 RECEIVED/SENT）
+    # 以及各命令实现类的 INFO 日志，对排障价值低却会淹没日志，因此只保留 WARN 及以上。
+    # 登录与传输结果由 HFG 自己输出精简单行审计日志。
+    org.apache.ftpserver: WARN

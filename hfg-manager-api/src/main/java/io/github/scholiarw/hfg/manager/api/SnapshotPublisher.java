@@ -117,7 +117,8 @@ class SnapshotPublisher {
   private UserSnapshot snapshot(UserRow row) {
     List<DirectoryGrant> grants =
         db.sql(
-                "select d.virtual_path,d.hdfs_path,g.access_mode,d.namespace_quota,d.space_quota_bytes from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id where g.user_id=:u and d.status='ENABLED'")
+                "select d.virtual_path,d.hdfs_path,g.access_mode,d.namespace_quota,d.space_quota_bytes from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id join service_group s on s.id=:group where g.user_id=:u and d.status='ENABLED' and d.hdfs_cluster_id=s.hdfs_cluster_id")
+            .param("group", row.serviceGroupId())
             .param("u", row.id())
             .query(
                 (rs, rowNumber) ->

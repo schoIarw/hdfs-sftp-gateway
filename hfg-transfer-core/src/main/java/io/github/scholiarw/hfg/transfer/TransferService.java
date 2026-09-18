@@ -1,6 +1,7 @@
 package io.github.scholiarw.hfg.transfer;
 
 import io.github.scholiarw.hfg.contract.*;
+import io.github.scholiarw.hfg.policy.PathResolver;
 import io.github.scholiarw.hfg.policy.PolicyEngine;
 import io.github.scholiarw.hfg.storage.*;
 import java.io.IOException;
@@ -9,8 +10,12 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class TransferService {
+  private static final Logger log = LoggerFactory.getLogger(TransferService.class);
+
   /** Reserved staging directory name; it is an HFG implementation detail, not user content. */
   static final String STAGING_DIRECTORY = ".uploading";
 
@@ -52,7 +57,13 @@ public final class TransferService {
   public Download openDownload(TransferContext context, String path, long offset)
       throws IOException {
     if (offset < 0) throw new HfgException(HfgErrorCode.UNSUPPORTED_OFFSET, "Negative offset");
-    var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
+    PathResolver.ResolvedPath resolved;
+    try {
+      resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
+    } catch (RuntimeException e) {
+      audit(context, "DOWNLOAD", path, 0, TransferStatus.FAILED, e.getMessage());
+      throw e;
+    }
     StorageClient storage = storage(context);
     try {
       var handle = storage.openRead(resolved.storagePath(), offset);
@@ -73,7 +84,13 @@ public final class TransferService {
       TransferContext context, String path, UUID transferId, long offset, boolean overwrite)
       throws IOException {
     if (offset < 0) throw new HfgException(HfgErrorCode.UNSUPPORTED_OFFSET, "Negative offset");
-    var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
+    PathResolver.ResolvedPath resolved;
+    try {
+      resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
+    } catch (RuntimeException e) {
+      audit(context, "UPLOAD", path, 0, TransferStatus.FAILED, e.getMessage());
+      throw e;
+    }
     StorageClient storage = storage(context);
     String parent = parent(resolved.storagePath());
     String stagingDir = stagingPath(parent);
@@ -205,6 +222,45 @@ public final class TransferService {
     return slash <= 0 ? "/" : path.substring(0, slash);
   }
 
+  /**
+   * One line per user-visible operation: protocol, direction, account, path, byte count and
+   * outcome. Command-level protocol chatter is suppressed in the logging configuration, so this is
+   * the only record operators need to see who moved what and why an operation was refused.
+   */
+  private static void audit(
+      TransferContext context,
+      String operation,
+      String path,
+      long bytes,
+      TransferStatus status,
+      Object error) {
+    String account = context.user() == null ? "-" : context.user().username();
+    if (status == TransferStatus.COMPLETED) {
+      log.info(
+          "{} {} user={} path={} bytes={} client={} gateway={} status=COMPLETED",
+          context.protocol(),
+          operation,
+          account,
+          path,
+          bytes,
+          context.clientAddress(),
+          context.gatewayId());
+      return;
+    }
+    if (status == TransferStatus.FAILED && error == null) error = "unknown";
+    log.warn(
+        "{} {} user={} path={} bytes={} client={} gateway={} status={} error={}",
+        context.protocol(),
+        operation,
+        account,
+        path,
+        bytes,
+        context.clientAddress(),
+        context.gatewayId(),
+        status,
+        error == null ? "-" : error);
+  }
+
   static TransferEvent event(
       UUID id,
       TransferContext c,
@@ -295,6 +351,13 @@ public final class TransferService {
               path,
               bytes,
               failure == null ? null : HfgErrorCode.INTERNAL_ERROR));
+      audit(
+          context,
+          "DOWNLOAD",
+          path,
+          bytes,
+          failure == null ? TransferStatus.COMPLETED : TransferStatus.FAILED,
+          failure == null ? null : failure.getMessage());
       if (failure != null) throw failure;
     }
   }
@@ -387,6 +450,13 @@ public final class TransferService {
               virtualPath,
               bytes,
               failure == null ? null : HfgErrorCode.INTERNAL_ERROR));
+      audit(
+          context,
+          "UPLOAD",
+          virtualPath,
+          bytes,
+          completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
+          failure == null ? null : failure.getMessage());
       if (failure != null) throw failure;
     }
 

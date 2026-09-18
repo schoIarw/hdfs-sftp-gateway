@@ -60,6 +60,22 @@ Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地
 | FTP PASV | 30000-31000 | 防火墙和 Keepalived 两端一致 |
 | Manager gRPC | 19090 | 网关到 Manager |
 
+## Gateway 与 HDFS 连接的对应关系
+
+每个 Gateway 进程通过 `HFG_SERVICE_GROUP_ID` 绑定一个服务组，服务组再绑定一个 HDFS 连接，因此**单个 Gateway 只连接一个 Hadoop 集群**，`HFG_HDFS_RUNTIME_PATH` 下只保存该集群的一份配置包。需要同时接入多个 Hadoop 集群时，按服务组部署多个 Gateway 进程（各自独立的 `HFG_GATEWAY_ID`、证书、端口和运行目录），Manager 中一个 HDFS 连接可被多个服务组复用，但同一个服务组只会就近访问自己绑定的连接。
+
+为避免下发 Gateway 无法解析的虚拟路径，Manager 会拒绝把属于其它 HDFS 连接的目录授权给用户（接口返回 409 并说明两个连接标识），发布快照时也只包含与本服务组 HDFS 连接一致的目录映射。若历史上已经存在跨连接授权，快照会忽略这些映射，需要管理员改绑目录或调整用户服务组。
+
+## Gateway 日志输出
+
+Gateway 只输出必要信息：Apache FtpServer 默认的逐条命令与应答日志（`FtpLoggingFilter` 的 `RECEIVED:`/`SENT:`）、各 FTP 命令实现类的 INFO 日志已关闭（`logging.level.org.apache.ftpserver: WARN`）。取而代之的是每行一条的审计信息：
+
+- FTP/SFTP 登录成功（INFO）与被拒绝（WARN），包含账号、认证方式和来源地址；
+- 每次上传/下载结束（完成 INFO、失败/中断 WARN），包含协议、方向、账号、路径、字节数、客户端地址和 Gateway ID；
+- 权限或路径被拒绝的上传/下载会在同一行里给出原因。
+
+需要逐条命令排障时，把 `logging.level.org.apache.ftpserver` 临时改为 `INFO` 并重启 Gateway 即可恢复完整协议日志。
+
 ## Manager 参数
 
 | 环境变量 | 用途 |

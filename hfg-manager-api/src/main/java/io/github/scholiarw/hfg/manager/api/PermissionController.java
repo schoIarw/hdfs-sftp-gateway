@@ -35,6 +35,7 @@ class PermissionController {
       @PathVariable UUID userId,
       @PathVariable UUID directoryId,
       @Valid @RequestBody GrantRequest r) {
+    requireSameCluster(userId, directoryId);
     db.sql(
             dialect.choose(
                 "insert into directory_grant(id,user_id,directory_mapping_id,access_mode,created_at) values(:id,:u,:d,:a,:now) on conflict(user_id,directory_mapping_id) do update set access_mode=excluded.access_mode",
@@ -54,6 +55,32 @@ class PermissionController {
         .param("u", userId)
         .param("d", directoryId)
         .update();
+  }
+
+  /**
+   * A Gateway serves exactly one HDFS connection: the one bound to its service group. Granting a
+   * user a directory that belongs to another connection would publish a virtual path its Gateway
+   * can never resolve, so the mismatch is rejected here instead of failing at transfer time.
+   */
+  private void requireSameCluster(UUID userId, UUID directoryId) {
+    List<Map<String, Object>> rows =
+        db.sql(
+                "select d.name,d.hdfs_cluster_id as mapping_cluster,g.hdfs_cluster_id as user_cluster from directory_mapping d join ftp_user u on u.id=:u join service_group g on g.id=u.service_group_id where d.id=:d")
+            .param("u", userId)
+            .param("d", directoryId)
+            .query()
+            .listOfRows();
+    if (rows.isEmpty()) throw new NoSuchElementException("用户或目录不存在");
+    Map<String, Object> row = rows.get(0);
+    if (!String.valueOf(row.get("mapping_cluster")).equals(String.valueOf(row.get("user_cluster"))))
+      throw new IllegalStateException(
+          "目录 “"
+              + row.get("name")
+              + "” 属于 HDFS 连接 "
+              + row.get("mapping_cluster")
+              + "，而用户所属服务组绑定 "
+              + row.get("user_cluster")
+              + "；一个 Gateway 只能访问本服务组的 HDFS 连接，请先调整目录映射或用户的服务组");
   }
 
   record GrantRequest(@NotNull AccessMode accessMode) {}
