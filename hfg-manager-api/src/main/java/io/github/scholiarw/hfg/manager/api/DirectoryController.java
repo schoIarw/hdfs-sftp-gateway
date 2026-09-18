@@ -89,8 +89,10 @@ class DirectoryController {
         .singleRow();
   }
 
+  /** Removes the directory mapping; its user grants are removed by the database cascade. */
   @DeleteMapping("/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
+  @Transactional
   void delete(@PathVariable UUID id) {
     db.sql("delete from directory_mapping where id=:id").param("id", id).update();
   }

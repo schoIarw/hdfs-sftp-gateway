@@ -124,7 +124,8 @@ class HdfsBundleService {
             .param("id", id)
             .query(String.class)
             .list(),
-        db.sql("select name from directory_mapping where hdfs_cluster_id=:id order by name")
+        db.sql(
+                "select d.name||'（含 '||(select count(*) from directory_grant g where g.directory_mapping_id=d.id)||' 条用户授权）' from directory_mapping d where d.hdfs_cluster_id=:id order by d.name")
             .param("id", id)
             .query(String.class)
             .list());
@@ -166,7 +167,11 @@ class HdfsBundleService {
     if (!directories.isEmpty()) references.add("目录映射 " + String.join("、", directories));
     if (references.isEmpty()) return;
     throw new IllegalStateException(
-        "HDFS 连接 “" + id + "” 仍被以下对象引用：" + String.join("、", references) + "；请先改绑或删除这些对象后再删除该连接");
+        "HDFS 连接 “"
+            + id
+            + "” 仍有关联，无法删除："
+            + String.join("；", references)
+            + "。请先删除绑定的服务组，并在“目录管理/权限管理”中删除目录映射及其用户授权后再删除该连接");
   }
 
   static void requireValidId(String id) {

@@ -41,7 +41,7 @@ class DashboardController {
         management
             .sql(
                 "select count(*) from gateway_node where status='UP' and last_heartbeat_at>:cutoff")
-            .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(30)))
+            .param("cutoff", java.sql.Timestamp.from(GatewayPresence.cutoff()))
             .query(Long.class)
             .single());
     Map<String, Long> bytes = new HashMap<>();

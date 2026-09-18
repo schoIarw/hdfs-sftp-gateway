@@ -87,26 +87,40 @@ class SystemController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   @Transactional
   void deleteGroup(@PathVariable String id) {
-    List<String> gateways =
-        db.sql("select hostname from gateway_node where service_group_id=:id order by hostname")
+    Map<String, Object> group =
+        db
+            .sql("select hdfs_cluster_id from service_group where id=:id")
+            .param("id", id)
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .orElseThrow(() -> new NoSuchElementException("服务组 “" + id + "” 不存在"));
+    String cluster = String.valueOf(group.get("hdfs_cluster_id"));
+    List<String> users =
+        db.sql("select username from ftp_user where service_group_id=:id order by username")
             .param("id", id)
             .query(String.class)
             .list();
-    Long users =
-        db.sql("select count(*) from ftp_user where service_group_id=:id")
+    List<String> directories =
+        db.sql("select name from directory_mapping where hdfs_cluster_id=:cluster order by name")
+            .param("cluster", cluster)
+            .query(String.class)
+            .list();
+    List<String> online =
+        db.sql(
+                "select hostname from gateway_node where service_group_id=:id and status='UP' and last_heartbeat_at>:cutoff order by hostname")
             .param("id", id)
-            .query(Long.class)
-            .single();
-    if (!gateways.isEmpty() || (users != null && users > 0))
-      throw new IllegalStateException(
-          "服务组 “"
-              + id
-              + "” 仍被 "
-              + (gateways.isEmpty() ? "" : "Gateway 节点 " + String.join("、", gateways) + " ")
-              + (users == null || users == 0 ? "" : "用户 " + users + " 个")
-              + " 引用，请先停用这些 Gateway 节点或改绑用户后再删除该服务组");
-    // Certificates and snapshots only exist to serve this group's gateways, so they are removed
-    // with it; otherwise the foreign keys would make the group undeletable for good.
+            .param("cutoff", java.sql.Timestamp.from(GatewayPresence.cutoff()))
+            .query(String.class)
+            .list();
+    if (!users.isEmpty() || !directories.isEmpty() || !online.isEmpty())
+      throw new IllegalStateException(blockedGroupMessage(id, cluster, users, directories, online));
+
+    // Offline or failed gateways, their certificates and published snapshots belong to this group
+    // and cannot authenticate anywhere else, so they are removed with it.
+    int nodes =
+        db.sql("delete from gateway_node where service_group_id=:id").param("id", id).update();
     int certificates =
         db.sql("delete from gateway_certificate where service_group_id=:id")
             .param("id", id)
@@ -116,10 +130,35 @@ class SystemController {
     if (db.sql("delete from service_group where id=:id").param("id", id).update() == 0)
       throw new NoSuchElementException("服务组 “" + id + "” 不存在");
     log.info(
-        "Deleted service group {} and its {} certificate(s) and {} snapshot(s)",
+        "Deleted service group {} with {} offline gateway node(s), {} certificate(s), {} snapshot(s)",
         id,
+        nodes,
         certificates,
         snapshots);
+  }
+
+  private static String blockedGroupMessage(
+      String id,
+      String cluster,
+      List<String> users,
+      List<String> directories,
+      List<String> online) {
+    List<String> reasons = new ArrayList<>();
+    if (!users.isEmpty())
+      reasons.add("用户 " + String.join("、", users) + "（共 " + users.size() + " 个）");
+    if (!directories.isEmpty())
+      reasons.add(
+          "目录映射 "
+              + String.join("、", directories)
+              + "（绑定 HDFS 连接 "
+              + cluster
+              + "，请在“目录管理/权限管理”中先删除目录与授权）");
+    if (!online.isEmpty()) reasons.add("在线 Gateway 节点 " + String.join("、", online) + "（请先停止这些网关）");
+    return "服务组 “"
+        + id
+        + "” 仍有关联，无法删除："
+        + String.join("；", reasons)
+        + "。离线或异常的 Gateway 节点不影响删除，会随服务组一起清理。";
   }
 
   @GetMapping("/gateways")
