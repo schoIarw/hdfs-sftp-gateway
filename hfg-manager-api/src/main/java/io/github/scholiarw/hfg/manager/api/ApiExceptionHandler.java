@@ -21,9 +21,22 @@ class ApiExceptionHandler {
     return problem(HttpStatus.BAD_REQUEST, "Invalid request", e.getMessage());
   }
 
-  @ExceptionHandler({IllegalStateException.class, DataIntegrityViolationException.class})
-  ProblemDetail conflict(Exception e) {
+  @ExceptionHandler(IllegalStateException.class)
+  ProblemDetail conflict(IllegalStateException e) {
     return problem(HttpStatus.CONFLICT, "Conflicting update", e.getMessage());
+  }
+
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  ProblemDetail integrity(DataIntegrityViolationException e) {
+    Throwable root = e.getMostSpecificCause();
+    // Keep the database reason (unique/foreign key, missing detail) but drop the echoed SQL
+    // statement, which only repeats what the caller already knows.
+    String detail = root == null ? e.getMessage() : root.getMessage();
+    int marker = detail == null ? -1 : detail.indexOf("]; ");
+    if (marker >= 0) detail = detail.substring(marker + 3);
+    var response = problem(HttpStatus.CONFLICT, "违反数据约束", detail);
+    response.setProperty("code", "DATA_INTEGRITY_VIOLATION");
+    return response;
   }
 
   @ExceptionHandler(DataAccessException.class)

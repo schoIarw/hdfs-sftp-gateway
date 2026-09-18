@@ -62,6 +62,13 @@ class SystemController {
   @PostMapping("/service-groups")
   @ResponseStatus(HttpStatus.CREATED)
   void createGroup(@Valid @RequestBody ServiceGroup r) {
+    Integer clusters =
+        db.sql("select count(*) from hdfs_cluster where id=:id")
+            .param("id", r.hdfsClusterId())
+            .query(Integer.class)
+            .single();
+    if (clusters == null || clusters == 0)
+      throw new NoSuchElementException("HDFS 连接 “" + r.hdfsClusterId() + "” 不存在，请先新建该连接");
     Instant n = Instant.now();
     db.sql(
             "insert into service_group(id,name,vip,hdfs_cluster_id,status,created_at,updated_at) values(:id,:name,:vip,:hdfs,'ENABLED',:n,:n)")
