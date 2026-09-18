@@ -151,8 +151,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
 
   @Override
   public void getGatewayConfiguration(
-      GatewayConfigurationRequest request,
-      StreamObserver<GatewayConfigurationResponse> observer) {
+      GatewayConfigurationRequest request, StreamObserver<GatewayConfigurationResponse> observer) {
     if (!authorized(request.getGatewayId(), request.getServiceGroupId(), observer)) return;
     try {
       String vip =
@@ -167,9 +166,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
                               + request.getServiceGroupId()
                               + "' does not exist or is disabled"));
       observer.onNext(
-          GatewayConfigurationResponse.newBuilder()
-              .setFtpPassiveExternalAddress(vip)
-              .build());
+          GatewayConfigurationResponse.newBuilder().setFtpPassiveExternalAddress(vip).build());
       observer.onCompleted();
     } catch (NoSuchElementException e) {
       observer.onError(Status.NOT_FOUND.withDescription(e.getMessage()).asRuntimeException());
@@ -257,10 +254,7 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
       if (!reservationBelongsToGroup(reservationId, request.getServiceGroupId()))
         throw new IllegalArgumentException(
             "Quota reservation does not belong to the Gateway service group");
-      quotas.commit(
-          reservationId,
-          request.getCompletedFiles(),
-          request.getCompletedBytes());
+      quotas.commit(reservationId, request.getCompletedFiles(), request.getCompletedBytes());
       observer.onNext(OperationAck.getDefaultInstance());
       observer.onCompleted();
     } catch (Exception e) {
