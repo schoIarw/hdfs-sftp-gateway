@@ -37,6 +37,7 @@ class DirectoryController {
   @ResponseStatus(HttpStatus.CREATED)
   @Transactional
   Map<String, Object> create(@Valid @RequestBody DirectoryRequest r) {
+    ClusterBindingGuard.requireUserCluster(db, r.userId(), r.hdfsClusterId());
     UUID id = UUID.randomUUID();
     Instant now = Instant.now();
     db.sql(
