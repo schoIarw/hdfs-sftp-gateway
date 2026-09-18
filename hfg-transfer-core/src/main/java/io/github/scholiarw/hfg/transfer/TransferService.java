@@ -235,6 +235,8 @@ public final class TransferService {
       TransferStatus status,
       Object error) {
     String account = context.user() == null ? "-" : context.user().username();
+    String client = context.clientAddress() == null ? "-" : context.clientAddress();
+    String gateway = context.gatewayId() == null ? "-" : context.gatewayId();
     if (status == TransferStatus.COMPLETED) {
       log.info(
           "{} {} user={} path={} bytes={} client={} gateway={} status=COMPLETED",
@@ -243,8 +245,8 @@ public final class TransferService {
           account,
           path,
           bytes,
-          context.clientAddress(),
-          context.gatewayId());
+          client,
+          gateway);
       return;
     }
     if (status == TransferStatus.FAILED && error == null) error = "unknown";
@@ -255,8 +257,8 @@ public final class TransferService {
         account,
         path,
         bytes,
-        context.clientAddress(),
-        context.gatewayId(),
+        client,
+        gateway,
         status,
         error == null ? "-" : error);
   }
