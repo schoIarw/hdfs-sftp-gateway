@@ -117,19 +117,9 @@ public final class GrpcControlClient implements AutoCloseable {
       HfgControlPlaneGrpc.newBlockingStub(channel)
           .withDeadlineAfter(5, TimeUnit.SECONDS)
           .heartbeat(
-              GatewayHeartbeat.newBuilder()
-                  .setGatewayId(settings.gatewayId())
-                  .setServiceGroupId(settings.serviceGroupId())
-                  .setHostname(settings.hostname())
+              heartbeatRequest()
                   .setRole("SERVING")
-                  .setManagementAddress(settings.managementAddress())
-                  .setSoftwareVersion(settings.softwareVersion())
-                  .setSnapshotVersion(store.version())
-                  .setIpAddress(settings.ipAddress())
-                  .setFtpPort(settings.ftpPort())
-                  .setSftpPort(settings.sftpPort())
-                  .setManagementPort(settings.managementPort())
-                  .setRuntimeStatus(settings.lastError().get().isBlank() ? "UP" : "DEGRADED")
+                  .setRuntimeStatus(settings.runtimeStatus().get())
                   .setLastError(settings.lastError().get())
                   .build());
     } catch (Exception e) {
@@ -139,6 +129,42 @@ public final class GrpcControlClient implements AutoCloseable {
           settings.serviceGroupId(),
           Status.fromThrowable(e));
     }
+  }
+
+  /**
+   * Best-effort teardown notification: without it a stopped gateway would keep showing as UP in the
+   * Manager until the heartbeat timeout expires.
+   */
+  private void reportStopped() {
+    if (channel == null) return;
+    try {
+      HfgControlPlaneGrpc.newBlockingStub(channel)
+          .withDeadlineAfter(3, TimeUnit.SECONDS)
+          .heartbeat(
+              heartbeatRequest()
+                  .setRole("STOPPING")
+                  .setRuntimeStatus("STOPPED")
+                  .setLastError("网关已停止")
+                  .build());
+      log.info("Reported Gateway {} to the control plane as STOPPED", settings.gatewayId());
+    } catch (Exception e) {
+      log.warn(
+          "Cannot report Gateway {} as stopped: {}", settings.gatewayId(), Status.fromThrowable(e));
+    }
+  }
+
+  private GatewayHeartbeat.Builder heartbeatRequest() {
+    return GatewayHeartbeat.newBuilder()
+        .setGatewayId(settings.gatewayId())
+        .setServiceGroupId(settings.serviceGroupId())
+        .setHostname(settings.hostname())
+        .setManagementAddress(settings.managementAddress())
+        .setSoftwareVersion(settings.softwareVersion())
+        .setSnapshotVersion(store.version())
+        .setIpAddress(settings.ipAddress())
+        .setFtpPort(settings.ftpPort())
+        .setSftpPort(settings.sftpPort())
+        .setManagementPort(settings.managementPort());
   }
 
   public HdfsBundle downloadHdfsBundle() {
@@ -212,6 +238,8 @@ public final class GrpcControlClient implements AutoCloseable {
 
   @Override
   public void close() {
+    // Report first, while the channel is still usable, then stop everything.
+    reportStopped();
     scheduler.shutdownNow();
     if (channel != null) channel.shutdownNow();
   }
@@ -233,6 +261,7 @@ public final class GrpcControlClient implements AutoCloseable {
       int managementPort,
       String softwareVersion,
       Duration heartbeatInterval,
+      Supplier<String> runtimeStatus,
       Supplier<String> lastError) {}
 
   public record HdfsBundle(byte[] zip, String sha256) {}

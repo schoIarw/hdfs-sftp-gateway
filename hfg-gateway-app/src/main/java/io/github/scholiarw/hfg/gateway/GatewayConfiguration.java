@@ -70,7 +70,10 @@ class GatewayConfiguration {
 
   @Bean(destroyMethod = "close")
   GrpcControlClient grpcControlClient(
-      GatewayProperties p, AtomicSnapshotStore store, GatewayRuntimeStatus runtimeStatus)
+      GatewayProperties p,
+      AtomicSnapshotStore store,
+      GatewayRuntimeStatus runtimeStatus,
+      GatewayReadiness readiness)
       throws Exception {
     var r = p.rpc();
     var client =
@@ -92,7 +95,8 @@ class GatewayConfiguration {
                 r.managementPort(),
                 softwareVersion(),
                 r.heartbeatInterval(),
-                runtimeStatus::summary),
+                () -> runtimeState(runtimeStatus, readiness),
+                () -> runtimeError(runtimeStatus, readiness)),
             store);
     client.start();
     return client;
@@ -120,6 +124,28 @@ class GatewayConfiguration {
             new HfgFtpFileSystemFactory(users, transfers, p.gatewayId()));
     if (f.enabled()) server.start();
     return server;
+  }
+
+  /**
+   * What the Manager should display for this node: OUT_OF_SERVICE while it cannot serve at all (no
+   * snapshot or no HDFS configuration), DEGRADED while a subsystem keeps failing, UP otherwise.
+   */
+  private static String runtimeState(GatewayRuntimeStatus status, GatewayReadiness readiness) {
+    if (!org.springframework.boot.actuate.health.Status.UP.equals(readiness.health().getStatus()))
+      return "OUT_OF_SERVICE";
+    return status.summary().isBlank() ? "UP" : "DEGRADED";
+  }
+
+  private static String runtimeError(GatewayRuntimeStatus status, GatewayReadiness readiness) {
+    String reason = readinessReason(readiness);
+    String summary = status.summary();
+    if (reason.isBlank()) return summary;
+    return summary.isBlank() ? reason : reason + "；" + summary;
+  }
+
+  private static String readinessReason(GatewayReadiness readiness) {
+    Object reason = readiness.health().getDetails().get("reason");
+    return reason == null ? "" : String.valueOf(reason);
   }
 
   private static String softwareVersion() {
