@@ -12,12 +12,16 @@ class SnapshotMutationFilterTest {
   void queuesSuccessfulConfigurationMutations() throws Exception {
     SnapshotPublicationService publications = mock(SnapshotPublicationService.class);
     SnapshotMutationFilter filter = new SnapshotMutationFilter(publications);
-    MockHttpServletRequest request = new MockHttpServletRequest("PUT", "/api/v1/users/user-1/status");
+    MockHttpServletRequest request =
+        new MockHttpServletRequest("PUT", "/api/v1/users/user-1/status");
     request.setUserPrincipal((Principal) () -> "admin");
     MockHttpServletResponse response = new MockHttpServletResponse();
 
-    filter.doFilter(request, response, (ignoredRequest, actualResponse) ->
-        ((MockHttpServletResponse) actualResponse).setStatus(204));
+    filter.doFilter(
+        request,
+        response,
+        (ignoredRequest, actualResponse) ->
+            ((MockHttpServletResponse) actualResponse).setStatus(204));
 
     verify(publications)
         .requestAll("admin", "configuration change: PUT /api/v1/users/user-1/status");
@@ -29,8 +33,10 @@ class SnapshotMutationFilterTest {
     SnapshotMutationFilter filter = new SnapshotMutationFilter(publications);
     MockHttpServletRequest failed = new MockHttpServletRequest("DELETE", "/api/v1/directories/id");
     MockHttpServletResponse failedResponse = new MockHttpServletResponse();
-    filter.doFilter(failed, failedResponse, (request, response) ->
-        ((MockHttpServletResponse) response).setStatus(409));
+    filter.doFilter(
+        failed,
+        failedResponse,
+        (request, response) -> ((MockHttpServletResponse) response).setStatus(409));
 
     MockHttpServletRequest manual =
         new MockHttpServletRequest("POST", "/api/v1/control/snapshots/group/publish");

@@ -48,8 +48,15 @@ class SnapshotPublicationService {
     Instant now = Instant.now();
     db.sql(
             dialect.choose(
-                "insert into snapshot_publish_request(service_group_id,requested_at,requested_by,reason,attempts,next_attempt_at,last_error) values(:g,:now,:actor,:reason,0,:now,null) on conflict(service_group_id) do update set requested_at=excluded.requested_at,requested_by=excluded.requested_by,reason=excluded.reason,attempts=0,next_attempt_at=excluded.next_attempt_at,last_error=null",
-                "insert into snapshot_publish_request(service_group_id,requested_at,requested_by,reason,attempts,next_attempt_at,last_error) values(:g,:now,:actor,:reason,0,:now,null) on duplicate key update requested_at=values(requested_at),requested_by=values(requested_by),reason=values(reason),attempts=0,next_attempt_at=values(next_attempt_at),last_error=null"))
+                "insert into"
+                    + " snapshot_publish_request(service_group_id,requested_at,requested_by,reason,attempts,next_attempt_at,last_error)"
+                    + " values(:g,:now,:actor,:reason,0,:now,null) on conflict(service_group_id) do"
+                    + " update set"
+                    + " requested_at=excluded.requested_at,requested_by=excluded.requested_by,reason=excluded.reason,attempts=0,next_attempt_at=excluded.next_attempt_at,last_error=null",
+                "insert into"
+                    + " snapshot_publish_request(service_group_id,requested_at,requested_by,reason,attempts,next_attempt_at,last_error)"
+                    + " values(:g,:now,:actor,:reason,0,:now,null) on duplicate key update"
+                    + " requested_at=values(requested_at),requested_by=values(requested_by),reason=values(reason),attempts=0,next_attempt_at=values(next_attempt_at),last_error=null"))
         .param("g", group)
         .param("now", Timestamp.from(now))
         .param("actor", truncate(actor, 128))
@@ -61,7 +68,8 @@ class SnapshotPublicationService {
   void publishPending() {
     List<Map<String, Object>> requests =
         db.sql(
-                "select service_group_id,requested_at,requested_by from snapshot_publish_request where next_attempt_at<=:now order by requested_at limit 50")
+                "select service_group_id,requested_at,requested_by from snapshot_publish_request"
+                    + " where next_attempt_at<=:now order by requested_at limit 50")
             .param("now", Timestamp.from(Instant.now()))
             .query()
             .listOfRows();
@@ -87,14 +95,17 @@ class SnapshotPublicationService {
       Optional<SignedSnapshotEnvelope> published = publisher.publishIfChanged(group, actor);
       published.ifPresent(envelope -> control.broadcast(group, envelope));
       db.sql(
-              "delete from snapshot_publish_request where service_group_id=:g and requested_at=:requested")
+              "delete from snapshot_publish_request where service_group_id=:g and"
+                  + " requested_at=:requested")
           .param("g", group)
           .param("requested", requestedAt)
           .update();
       if (published.isPresent()) log.info("Automatically published configuration for {}", group);
     } catch (RuntimeException exception) {
       db.sql(
-              "update snapshot_publish_request set attempts=attempts+1,next_attempt_at=:retry,last_error=:error where service_group_id=:g and requested_at=:requested")
+              "update snapshot_publish_request set"
+                  + " attempts=attempts+1,next_attempt_at=:retry,last_error=:error where"
+                  + " service_group_id=:g and requested_at=:requested")
           .param("retry", Timestamp.from(Instant.now().plus(retryDelay)))
           .param("error", truncate(describe(exception), 2048))
           .param("g", group)
