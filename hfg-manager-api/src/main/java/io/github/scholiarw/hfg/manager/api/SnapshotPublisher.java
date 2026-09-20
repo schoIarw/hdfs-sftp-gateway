@@ -34,14 +34,17 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class SnapshotPublisher {
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
   private final ObjectMapper mapper;
   private final String privateKeyBase64;
 
   SnapshotPublisher(
       JdbcClient db,
+      DatabaseDialect dialect,
       ObjectMapper mapper,
       @Value("${hfg.snapshot.signing-private-key-base64:}") String privateKeyBase64) {
     this.db = db;
+    this.dialect = dialect;
     this.mapper = mapper;
     this.privateKeyBase64 = privateKeyBase64;
   }
@@ -96,7 +99,7 @@ class SnapshotPublisher {
               "insert into"
                   + " config_snapshot(id,service_group_id,version,payload_json,payload_sha256,source_sha256,signature,status,created_by,created_at)"
                   + " values(:id,:g,:v,:p,:h,:source,:s,'PUBLISHED',:a,:now)")
-          .param("id", UUID.randomUUID())
+          .param("id", dialect.id(UUID.randomUUID()))
           .param("g", group)
           .param("v", version)
           .param("p", payload)

@@ -135,7 +135,7 @@ class BusinessLogsIntegrationTest {
     var generator = KeyPairGenerator.getInstance("Ed25519");
     String privateKey =
         Base64.getEncoder().encodeToString(generator.generateKeyPair().getPrivate().getEncoded());
-    var publisher = new SnapshotPublisher(management, objectMapper, privateKey);
+    var publisher = new SnapshotPublisher(management, dialect, objectMapper, privateKey);
     assertThat(publisher.publishIfChanged(group, "integration-test")).isPresent();
     assertThat(publisher.publishIfChanged(group, "integration-test")).isEmpty();
     assertThat(publisher.publish(group, "integration-test")).isNotNull();
