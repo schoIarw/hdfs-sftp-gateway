@@ -155,7 +155,7 @@ Gateway 标识及服务组生成证书 ZIP，把其中 `gateway.crt`、`gateway.
 Gateway 的 `/etc/hfg/pki`，并把 `hfg-gateway-bootstrap.env` 安装到 `/etc/hfg/`。
 整个签发过程由 Java 完成，不调用 openssl。
 
-HDFS ZIP 只放 Hadoop XML 和一个目标 keytab；`krb5.conf` 会被忽略。上传前使用 `klist -kte` 检查 keytab。创建服务组后，应先创建用户、虚拟目录、ACL、流控和配额并发布第一个快照，再启动 Gateway；否则 readiness 会因为没有有效快照而返回 `OUT_OF_SERVICE`。
+HDFS ZIP 只放 Hadoop XML 和一个目标 keytab；`krb5.conf` 会被忽略。上传前使用 `klist -kte` 检查 keytab。创建服务组后，先创建用户、虚拟目录、ACL、流控和配额；Manager 默认在 2 秒内自动发布首个快照。确认页面出现快照版本后再启动 Gateway，否则 readiness 会因为没有有效快照而返回 `OUT_OF_SERVICE`。页面“强制发布”仅用于主动重推或故障恢复。
 
 Gateway 主配置只需人工填写 `HFG_RPC_HOST` 和 `HFG_NODE_IP`。节点 ID、服务组、快照公钥和
 证书路径来自下载的 bootstrap 文件。服务组 VIP 由 Manager 下发，无需在 Gateway 重复配置。
@@ -206,7 +206,7 @@ ftp <VIP>
 sftp -P 22 <ftp-user>@<VIP>
 ```
 
-完成用户、目录、ACL 和流控策略配置并发布快照后，再验证列表、上传、下载、临时文件原子提交、配额拒绝和主备切换。
+完成用户、目录、ACL 和流控策略配置并确认自动发布的快照版本后，再验证列表、上传、下载、临时文件原子提交、配额拒绝和主备切换。
 
 ## 三、Docker 安装
 

@@ -24,7 +24,9 @@ npm run build
 | HDFS 适配 | 本地 Hadoop FileSystem 的读写、列表、rename |
 | 限速 | 确定性时钟下 Token Bucket refill、大请求分段 |
 | 周期 | DAY/WEEK/MONTH、时区与 DST 边界 |
-| 并发 | 配额提交异常仍释放 Gateway 并发许可 |
+| 并发 | 配额预留或提交异常仍释放 Gateway 并发许可 |
+| 小配额 | 小于 64 MiB 或窗口尾部不足 64 MiB 时按 Manager 实际授予额度传输，不提前拒绝 |
+| 断点续传 | 成功结算暂存文件已有字节与本次新增字节之和，不能通过续传绕过周期额度 |
 | 快照 | SHA-256、Ed25519、篡改拒绝 |
 | SFTP | authorized_keys 注释规范化、公钥校验 |
 | API | OpenSSH 公钥格式和 SHA-256 指纹 |
@@ -62,7 +64,8 @@ npm run build
 3. DAY/WEEK/MONTH 分别测试文件数和字节数达到上限、超限拒绝、边界后恢复。
 4. 在 Asia/Shanghai 与 America/New_York 的 DST 切换点测试窗口计算。
 5. 传输失败、Gateway kill -9、Manager 暂停时验证租约过期回收且不重复结算。
-6. 修改策略并发布新快照，不重启 Gateway；下一次新传输使用新策略。
+6. 修改策略后等待自动发布，不重启 Gateway；下一次新传输使用新策略。随后点击“强制发布”，确认即使内容未变化仍生成更高版本并重推。
+7. 暂停自动发布处理或制造一次临时失败，确认持久化请求会重试；清除待发布请求后等待周期一致性检查，确认遗漏配置自动补发。
 
 ## 6. 高可用与故障注入
 

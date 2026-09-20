@@ -38,8 +38,10 @@ class QuotaReservationService {
             Instant.now(), period, ZoneId.of(String.valueOf(policy.get("time_zone"))));
     db.sql(
             dialect.choose(
-                "insert into usage_window(user_id,direction,window_start,window_end) values(:u,:d,:s,:e) on conflict do nothing",
-                "insert ignore into usage_window(user_id,direction,window_start,window_end) values(:u,:d,:s,:e)"))
+                "insert into usage_window(user_id,direction,window_start,window_end)"
+                    + " values(:u,:d,:s,:e) on conflict do nothing",
+                "insert ignore into usage_window(user_id,direction,window_start,window_end)"
+                    + " values(:u,:d,:s,:e)"))
         .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
@@ -48,7 +50,8 @@ class QuotaReservationService {
 
     Map<String, Object> usage =
         db.sql(
-                "select * from usage_window where user_id=:u and direction=:d and window_start=:s for update")
+                "select * from usage_window where user_id=:u and direction=:d and window_start=:s"
+                    + " for update")
             .param("u", dialect.id(userId))
             .param("d", direction.name())
             .param("s", java.sql.Timestamp.from(window.startInclusive()))
@@ -68,35 +71,45 @@ class QuotaReservationService {
                 : "period_download_bytes");
     long usedFiles = num(usage, "completed_files") + num(usage, "reserved_files");
     long usedBytes = num(usage, "completed_bytes") + num(usage, "reserved_bytes");
-    if (fileLimit > 0 && usedFiles + files > fileLimit)
+    if (fileLimit > 0 && files > 0 && (usedFiles >= fileLimit || files > fileLimit - usedFiles))
       throw new HfgException(HfgErrorCode.QUOTA_EXCEEDED, "Periodic file quota exceeded");
-    if (byteLimit > 0 && usedBytes + bytes > byteLimit)
-      throw new HfgException(HfgErrorCode.QUOTA_EXCEEDED, "Periodic byte quota exceeded");
+    long grantedBytes = bytes;
+    if (byteLimit > 0 && bytes > 0) {
+      long available = Math.max(0, byteLimit - usedBytes);
+      if (available == 0)
+        throw new HfgException(HfgErrorCode.QUOTA_EXCEEDED, "Periodic byte quota exceeded");
+      // Gateway asks in coarse chunks to keep RPC volume low. Grant the remaining quota instead
+      // of rejecting a small transfer merely because the requested chunk is larger than what is
+      // still available in this window.
+      grantedBytes = Math.min(bytes, available);
+    }
 
     UUID id = UUID.randomUUID();
     db.sql(
-            "update usage_window set reserved_files=reserved_files+:f,reserved_bytes=reserved_bytes+:b,"
-                + "revision=revision+1 where user_id=:u and direction=:d and window_start=:s")
+            "update usage_window set"
+                + " reserved_files=reserved_files+:f,reserved_bytes=reserved_bytes+:b,revision=revision+1"
+                + " where user_id=:u and direction=:d and window_start=:s")
         .param("f", files)
-        .param("b", bytes)
+        .param("b", grantedBytes)
         .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .update();
     db.sql(
-            "insert into quota_reservation(id,user_id,direction,window_start,reserved_files,reserved_bytes,"
-                + "status,expires_at,created_at) values(:id,:u,:d,:s,:f,:b,'ACTIVE',:expires,:now)")
+            "insert into"
+                + " quota_reservation(id,user_id,direction,window_start,reserved_files,reserved_bytes,status,expires_at,created_at)"
+                + " values(:id,:u,:d,:s,:f,:b,'ACTIVE',:expires,:now)")
         .param("id", dialect.id(id))
         .param("u", dialect.id(userId))
         .param("d", direction.name())
         .param("s", java.sql.Timestamp.from(window.startInclusive()))
         .param("f", files)
-        .param("b", bytes)
+        .param("b", grantedBytes)
         .param("expires", java.sql.Timestamp.from(Instant.now().plus(Duration.ofMinutes(15))))
         .param("now", java.sql.Timestamp.from(Instant.now()))
         .update();
     logs.recordQuotaAfterCommit(userId, direction, window.startInclusive(), "RESERVED");
-    return new Reservation(id, files, bytes);
+    return new Reservation(id, files, grantedBytes);
   }
 
   @Transactional
@@ -118,7 +131,8 @@ class QuotaReservationService {
     List<UUID> ids =
         db
             .sql(
-                "select id from quota_reservation where status='ACTIVE' and expires_at<:n limit 100 for update skip locked")
+                "select id from quota_reservation where status='ACTIVE' and expires_at<:n limit 100"
+                    + " for update skip locked")
             .param("n", java.sql.Timestamp.from(Instant.now()))
             .query(String.class)
             .list()
@@ -141,9 +155,8 @@ class QuotaReservationService {
     long bytes = Math.min(Math.max(0, completedBytes), reservedBytes);
     db.sql(
             "update usage_window set reserved_files=greatest(0,reserved_files-:rf),"
-                + "reserved_bytes=greatest(0,reserved_bytes-:rb),completed_files=completed_files+:cf,"
-                + "completed_bytes=completed_bytes+:cb,revision=revision+1 "
-                + "where user_id=:u and direction=:d and window_start=:s")
+                + "reserved_bytes=greatest(0,reserved_bytes-:rb),completed_files=completed_files+:cf,completed_bytes=completed_bytes+:cb,revision=revision+1"
+                + " where user_id=:u and direction=:d and window_start=:s")
         .param("rf", reservedFiles)
         .param("rb", reservedBytes)
         .param("cf", files)

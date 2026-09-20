@@ -34,6 +34,10 @@ hfg:
   snapshot:
     signing-private-key-base64: ${HFG_SNAPSHOT_PRIVATE_KEY_BASE64:}
     signing-public-key-base64: ${HFG_SNAPSHOT_PUBLIC_KEY_BASE64:}
+    auto-publish-interval: ${HFG_SNAPSHOT_AUTO_PUBLISH_INTERVAL:PT2S}
+    reconcile-initial-delay: ${HFG_SNAPSHOT_RECONCILE_INITIAL_DELAY:PT15S}
+    reconcile-interval: ${HFG_SNAPSHOT_RECONCILE_INTERVAL:PT5M}
+    retry-delay: ${HFG_SNAPSHOT_RETRY_DELAY:PT30S}
   prometheus:
     # 关闭后管理界面的监控查询显示“未开启”，相关接口返回 503。
     enabled: ${HFG_PROMETHEUS_ENABLED:true}

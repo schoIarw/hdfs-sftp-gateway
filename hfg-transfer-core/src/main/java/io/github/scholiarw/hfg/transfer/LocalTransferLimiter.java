@@ -23,7 +23,8 @@ public final class LocalTransferLimiter implements TransferLimiter {
   }
 
   @Override
-  public Permit open(UserSnapshot user, TransferDirection direction) {
+  public Permit open(UserSnapshot user, TransferDirection direction, long initialBytes) {
+    if (initialBytes < 0) throw new IllegalArgumentException("initialBytes must be non-negative");
     var key = new Key(user.id(), direction);
     State state =
         states.compute(
@@ -42,20 +43,30 @@ public final class LocalTransferLimiter implements TransferLimiter {
             ? user.trafficPolicy().periodUploadBytes() > 0
             : user.trafficPolicy().periodDownloadBytes() > 0;
     var quotaLeases = new java.util.ArrayList<QuotaLeaseClient.Lease>();
-    if (fileQuota) quotaLeases.add(quotas.reserve(user, direction, 1, 0));
+    long initiallyReserved = 0;
+    try {
+      if (fileQuota) quotaLeases.add(quotas.reserve(user, direction, 1, 0));
+      if (byteQuota)
+        initiallyReserved =
+            reserveUntil(user, direction, initialBytes, initiallyReserved, quotaLeases);
+    } catch (RuntimeException failure) {
+      releaseAfterOpenFailure(quotaLeases, lease, failure);
+      throw failure;
+    }
+    long reservedAtOpen = initiallyReserved;
     return new Permit() {
-      private long used, reserved;
+      private long used = initialBytes;
+      private long reserved = reservedAtOpen;
       private long lastRenewed = System.nanoTime();
       private boolean closed;
 
       public void acquire(int bytes) {
+        if (bytes <= 0) return;
+        if (byteQuota) {
+          long required = Math.addExact(used, bytes);
+          reserved = reserveUntil(user, direction, required, reserved, quotaLeases);
+        }
         state.bucket.acquire(bytes);
-        if (byteQuota)
-          while (reserved - used < bytes) {
-            long amount = Math.max(QUANTUM, bytes - (reserved - used));
-            quotaLeases.add(quotas.reserve(user, direction, 0, amount));
-            reserved += amount;
-          }
         long now = System.nanoTime();
         if (!quotaLeases.isEmpty() && now - lastRenewed >= RENEW_INTERVAL_NANOS) {
           for (var quotaLease : quotaLeases) quotas.renew(quotaLease);
@@ -87,6 +98,39 @@ public final class LocalTransferLimiter implements TransferLimiter {
         if (failure != null) throw failure;
       }
     };
+  }
+
+  private long reserveUntil(
+      UserSnapshot user,
+      TransferDirection direction,
+      long required,
+      long reserved,
+      java.util.List<QuotaLeaseClient.Lease> leases) {
+    while (reserved < required) {
+      long amount = Math.max(QUANTUM, required - reserved);
+      QuotaLeaseClient.Lease quotaLease = quotas.reserve(user, direction, 0, amount);
+      if (quotaLease.bytes() <= 0)
+        throw new IllegalStateException("Manager returned an empty byte quota reservation");
+      leases.add(quotaLease);
+      reserved = Math.addExact(reserved, quotaLease.bytes());
+    }
+    return reserved;
+  }
+
+  private void releaseAfterOpenFailure(
+      java.util.List<QuotaLeaseClient.Lease> quotaLeases,
+      ConcurrencyGate.Lease concurrencyLease,
+      RuntimeException failure) {
+    try {
+      for (var quotaLease : quotaLeases)
+        try {
+          quotas.commit(quotaLease, 0, 0);
+        } catch (RuntimeException releaseFailure) {
+          failure.addSuppressed(releaseFailure);
+        }
+    } finally {
+      concurrencyLease.close();
+    }
   }
 
   private static State create(UserSnapshot user, TransferDirection direction) {

@@ -67,14 +67,23 @@ public final class TransferService {
     StorageClient storage = storage(context);
     try {
       var handle = storage.openRead(resolved.storagePath(), offset);
-      return new Download(
-          UUID.randomUUID(),
-          context,
-          resolved.virtualPath(),
-          storage,
-          handle,
-          limiter.open(context.user(), TransferDirection.DOWNLOAD),
-          events);
+      try {
+        return new Download(
+            UUID.randomUUID(),
+            context,
+            resolved.virtualPath(),
+            storage,
+            handle,
+            limiter.open(context.user(), TransferDirection.DOWNLOAD, 0),
+            events);
+      } catch (RuntimeException exception) {
+        try {
+          handle.close();
+        } catch (IOException closeFailure) {
+          exception.addSuppressed(closeFailure);
+        }
+        throw exception;
+      }
     } catch (Exception e) {
       throw e;
     }
@@ -107,17 +116,26 @@ public final class TransferService {
         }
         handle = storage.append(stagingPath);
       }
-      return new Upload(
-          transferId,
-          context,
-          resolved.virtualPath(),
-          resolved.storagePath(),
-          stagingPath,
-          overwrite,
-          storage,
-          handle,
-          limiter.open(context.user(), TransferDirection.UPLOAD),
-          events);
+      try {
+        return new Upload(
+            transferId,
+            context,
+            resolved.virtualPath(),
+            resolved.storagePath(),
+            stagingPath,
+            overwrite,
+            storage,
+            handle,
+            limiter.open(context.user(), TransferDirection.UPLOAD, offset),
+            events);
+      } catch (RuntimeException exception) {
+        try {
+          handle.close();
+        } catch (IOException closeFailure) {
+          exception.addSuppressed(closeFailure);
+        }
+        throw exception;
+      }
     } catch (Exception e) {
       throw e;
     }
@@ -450,13 +468,13 @@ public final class TransferService {
               TransferDirection.UPLOAD,
               completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
               virtualPath,
-              bytes,
+              completed ? position() : bytes,
               failure == null ? null : HfgErrorCode.INTERNAL_ERROR));
       audit(
           context,
           "UPLOAD",
           virtualPath,
-          bytes,
+          completed ? position() : bytes,
           completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
           failure == null ? null : failure.getMessage());
       if (failure != null) throw failure;

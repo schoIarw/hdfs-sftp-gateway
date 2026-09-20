@@ -101,6 +101,10 @@ Gateway 只输出必要信息：Apache FtpServer 默认的逐条命令与应答�
 | HFG_ADMIN_USERNAME / HFG_ADMIN_PASSWORD | 管理 API 初始管理员；用户名默认 `admin`，密码必填 |
 | HFG_GATEWAY_CERT_VALIDITY_DAYS | Gateway 证书有效天数，默认 365 |
 | HFG_HDFS_BUNDLE_PATH | HDFS ZIP 与安全解压内容保存目录 |
+| HFG_SNAPSHOT_AUTO_PUBLISH_INTERVAL | 待发布配置合并处理间隔，默认 `PT2S` |
+| HFG_SNAPSHOT_RECONCILE_INTERVAL | 全服务组配置一致性检查周期，默认 `PT5M` |
+| HFG_SNAPSHOT_RECONCILE_INITIAL_DELAY | Manager 启动后首次一致性检查延迟，默认 `PT15S` |
+| HFG_SNAPSHOT_RETRY_DELAY | 自动发布失败后的重试间隔，默认 `PT30S` |
 | HFG_PROMETHEUS_ENABLED | 是否启用 Manager 的 Prometheus 查询，默认 true；设为 false 后界面显示“未开启”，查询接口返回 503 |
 | HFG_PROMETHEUS_URL | 固定 Prometheus 服务地址 |
 | HFG_PROMETHEUS_USERNAME / HFG_PROMETHEUS_PASSWORD | Prometheus 的 Basic 认证账号；留空表示匿名访问 |
@@ -110,6 +114,8 @@ Gateway 只输出必要信息：Apache FtpServer 默认的逐条命令与应答�
 | HFG_DB_POOL_SIZE / HFG_DB_MIN_IDLE | 管理库连接池，默认 `20` / `2` |
 | HFG_RPC_ENABLED / HFG_RPC_PORT | 默认 `true` / `19090`；仅本地演示可关闭 RPC |
 | HFG_RPC_CA_KEY_PASSWORD | 仅外部 CA 私钥为加密 PEM 时配置；一键工具生成的私钥无需配置 |
+
+用户、SSH 公钥、目录、权限、流控策略和服务组通过管理 API 成功变更后，Manager 会把所有启用服务组写入持久化待发布队列，默认在 2 秒内合并并自动发布。周期一致性检查使用配置源摘要补偿进程中断或临时数据库故障；没有实际变化时不增加快照版本。页面“强制发布”按钮始终生成更高版本并主动重推，适用于现场故障恢复，不再是正常配置生效的必需步骤。
 
 其中真正必须人工填写的是数据库连接和初始管理员密码；独立日志库和 Prometheus 地址按部署选择填写。
 `HFG_GATEWAY_CERT_VALIDITY_DAYS`、`HFG_HDFS_BUNDLE_PATH`、连接池、保留期和端口均有默认值。

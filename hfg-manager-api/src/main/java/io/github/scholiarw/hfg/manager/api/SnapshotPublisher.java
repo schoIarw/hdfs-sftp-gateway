@@ -18,11 +18,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -46,6 +48,17 @@ class SnapshotPublisher {
 
   @Transactional
   SignedSnapshotEnvelope publish(String group, String actor) {
+    return publishLocked(group, actor, true)
+        .orElseThrow(() -> new IllegalStateException("Forced snapshot publication was skipped"));
+  }
+
+  @Transactional
+  Optional<SignedSnapshotEnvelope> publishIfChanged(String group, String actor) {
+    return publishLocked(group, actor, false);
+  }
+
+  private Optional<SignedSnapshotEnvelope> publishLocked(
+      String group, String actor, boolean force) {
     if (privateKeyBase64.isBlank()) {
       throw new IllegalStateException("Snapshot signing key is not configured");
     }
@@ -53,23 +66,24 @@ class SnapshotPublisher {
         .param("g", group)
         .query(String.class)
         .single();
-    long version =
-        db.sql("select coalesce(max(version),0)+1 from config_snapshot where service_group_id=:g")
-            .param("g", group)
-            .query(Long.class)
-            .single();
-
-    // Materialize users before issuing child queries. Some JDBC drivers allow only one
-    // active statement per connection and would otherwise invalidate the outer result set.
-    List<UserRow> rows =
-        db.sql(
-                "select * from ftp_user where service_group_id=:g and status='ENABLED' order by username")
-            .param("g", group)
-            .query((rs, rowNumber) -> userRow(rs))
-            .list();
-    List<UserSnapshot> users = rows.stream().map(this::snapshot).toList();
-
     try {
+      List<UserSnapshot> users = snapshotUsers(group);
+      String sourceHash = sourceHash(group, users);
+      if (!force) {
+        Optional<String> latestSource =
+            db.sql(
+                    "select source_sha256 from config_snapshot where service_group_id=:g and"
+                        + " status='PUBLISHED' order by version desc limit 1")
+                .param("g", group)
+                .query(String.class)
+                .optional();
+        if (latestSource.filter(sourceHash::equals).isPresent()) return Optional.empty();
+      }
+      long version =
+          db.sql("select coalesce(max(version),0)+1 from config_snapshot where service_group_id=:g")
+              .param("g", group)
+              .query(Long.class)
+              .single();
       String payload =
           mapper.writeValueAsString(new SnapshotPayload(version, group, Instant.now(), users));
       byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
@@ -79,25 +93,69 @@ class SnapshotPublisher {
       signer.update(bytes);
       String signature = Base64.getEncoder().encodeToString(signer.sign());
       db.sql(
-              "insert into config_snapshot(id,service_group_id,version,payload_json,payload_sha256,signature,status,created_by,created_at) values(:id,:g,:v,:p,:h,:s,'PUBLISHED',:a,:now)")
+              "insert into"
+                  + " config_snapshot(id,service_group_id,version,payload_json,payload_sha256,source_sha256,signature,status,created_by,created_at)"
+                  + " values(:id,:g,:v,:p,:h,:source,:s,'PUBLISHED',:a,:now)")
           .param("id", UUID.randomUUID())
           .param("g", group)
           .param("v", version)
           .param("p", payload)
           .param("h", hash)
+          .param("source", sourceHash)
           .param("s", signature)
           .param("a", actor)
           .param("now", java.sql.Timestamp.from(Instant.now()))
           .update();
-      return new SignedSnapshotEnvelope(payload, hash, signature);
+      return Optional.of(new SignedSnapshotEnvelope(payload, hash, signature));
     } catch (Exception exception) {
       throw new IllegalStateException("Cannot sign snapshot", exception);
     }
   }
 
+  private List<UserSnapshot> snapshotUsers(String group) {
+    // Materialize users before issuing child queries. Some JDBC drivers allow only one active
+    // statement per connection and would otherwise invalidate the outer result set.
+    List<UserRow> rows =
+        db.sql(
+                "select * from ftp_user where service_group_id=:g and status='ENABLED' order by"
+                    + " username,id")
+            .param("g", group)
+            .query((rs, rowNumber) -> userRow(rs))
+            .list();
+    return rows.stream().map(this::snapshot).toList();
+  }
+
+  private String sourceHash(String group, List<UserSnapshot> users) throws Exception {
+    List<SnapshotUserSource> canonicalUsers =
+        users.stream()
+            .map(
+                user ->
+                    new SnapshotUserSource(
+                        user.id(),
+                        user.username(),
+                        user.passwordHash(),
+                        user.sshPublicKeys().stream().sorted().toList(),
+                        user.department(),
+                        user.businessDomain(),
+                        user.serviceGroupId(),
+                        user.status(),
+                        user.expiresAt(),
+                        user.directories().stream()
+                            .sorted(
+                                Comparator.comparing(DirectoryGrant::virtualPath)
+                                    .thenComparing(DirectoryGrant::hdfsPath)
+                                    .thenComparing(grant -> grant.accessMode().name()))
+                            .toList(),
+                        user.trafficPolicy()))
+            .toList();
+    byte[] source = mapper.writeValueAsBytes(new SnapshotSource(group, canonicalUsers));
+    return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(source));
+  }
+
   SignedSnapshotEnvelope latest(String group) {
     return db.sql(
-            "select payload_json,payload_sha256,signature from config_snapshot where service_group_id=:g and status='PUBLISHED' order by version desc limit 1")
+            "select payload_json,payload_sha256,signature from config_snapshot where"
+                + " service_group_id=:g and status='PUBLISHED' order by version desc limit 1")
         .param("g", group)
         .query(
             (rs, rowNumber) ->
@@ -117,7 +175,12 @@ class SnapshotPublisher {
   private UserSnapshot snapshot(UserRow row) {
     List<DirectoryGrant> grants =
         db.sql(
-                "select d.virtual_path,d.hdfs_path,g.access_mode,d.namespace_quota,d.space_quota_bytes from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id join service_group s on s.id=:group where g.user_id=:u and d.status='ENABLED' and d.hdfs_cluster_id=s.hdfs_cluster_id")
+                "select"
+                    + " d.virtual_path,d.hdfs_path,g.access_mode,d.namespace_quota,d.space_quota_bytes"
+                    + " from directory_grant g join directory_mapping d on"
+                    + " d.id=g.directory_mapping_id join service_group s on s.id=:group where"
+                    + " g.user_id=:u and d.status='ENABLED' and d.hdfs_cluster_id=s.hdfs_cluster_id"
+                    + " order by d.virtual_path,d.hdfs_path,g.access_mode")
             .param("group", row.serviceGroupId())
             .param("u", row.id())
             .query(
@@ -130,8 +193,8 @@ class SnapshotPublisher {
                         rs.getLong(5)))
             .list();
     Set<String> publicKeys =
-        new HashSet<>(
-            db.sql("select public_key from ssh_public_key where user_id=:u")
+        new TreeSet<>(
+            db.sql("select public_key from ssh_public_key where user_id=:u order by public_key")
                 .param("u", row.id())
                 .query(String.class)
                 .list());
@@ -201,4 +264,19 @@ class SnapshotPublisher {
       String serviceGroupId,
       AccountStatus status,
       Instant expiresAt) {}
+
+  private record SnapshotSource(String serviceGroupId, List<SnapshotUserSource> users) {}
+
+  private record SnapshotUserSource(
+      UUID id,
+      String username,
+      String passwordHash,
+      List<String> sshPublicKeys,
+      String department,
+      String businessDomain,
+      String serviceGroupId,
+      AccountStatus status,
+      Instant expiresAt,
+      List<DirectoryGrant> directories,
+      TrafficPolicy trafficPolicy) {}
 }

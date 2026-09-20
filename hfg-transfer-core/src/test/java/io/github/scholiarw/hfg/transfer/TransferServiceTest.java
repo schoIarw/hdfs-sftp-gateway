@@ -68,6 +68,33 @@ class TransferServiceTest {
   }
 
   @Test
+  void resumedUploadReportsTheCompleteFileSize() throws Exception {
+    List<TransferEvent> events = new ArrayList<>();
+    var reportingService =
+        new TransferService(
+            u -> storage,
+            new PolicyEngine(new PathResolver()),
+            TransferLimiter.unlimited(),
+            events::add);
+    UUID id = UUID.randomUUID();
+
+    try (var first = reportingService.openUpload(context, "/resume.bin", id, 0, true)) {
+      first.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+    }
+    try (var resumed = reportingService.openUpload(context, "/resume.bin", id, 3, true)) {
+      resumed.write(ByteBuffer.wrap(new byte[] {4, 5}));
+      resumed.commit();
+    }
+
+    TransferEvent completed =
+        events.stream()
+            .filter(event -> event.status() == TransferStatus.COMPLETED)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(5, completed.bytes());
+  }
+
+  @Test
   void readOnlyGrantRejectsWrite() {
     var user =
         new UserSnapshot(

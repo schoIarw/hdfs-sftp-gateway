@@ -447,9 +447,9 @@ timedatectl status
 - **重新上传认证文件**：对已有连接点“重新上传认证文件”，只需选择 ZIP，标识和名称保持不变。keytab 轮换、`principal` 变更或 `/var/lib/hfg/hdfs-bundles` 内容丢失后都用该操作恢复；列表中的“认证文件”列显示“已上传/文件缺失”。
 - **删除**：连接仍被服务组或目录映射引用时，删除会被拒绝并提示具体引用对象；先删除或改绑这些对象再删除连接。删除成功后 Manager 会同时删除该连接在 `HFG_HDFS_BUNDLE_PATH` 下的目录。
 
-若 HDFS 连接已被 Gateway 使用，重新上传或删除后需让对应服务组重新发布快照，Gateway 才会拉取新的配置包。
+若 HDFS 连接已被 Gateway 使用，重新上传认证文件后无需发布配置快照；Gateway 默认每分钟独立检查 HDFS 配置包摘要并自动安装新版本。删除仍被服务组使用的 HDFS 连接会被拒绝。
 
-在启动 Gateway 前，先创建 FTP/SFTP 用户、用户绑定的虚拟目录、ACL、流控与配额，并为服务组发布第一个配置快照。Gateway readiness 同时要求“已安装有效快照”和“已安装 HDFS 配置”；未发布快照时返回 `OUT_OF_SERVICE`，Keepalived 不会持有 VIP。
+在启动 Gateway 前，先创建 FTP/SFTP 用户、用户绑定的虚拟目录、ACL、流控与配额。Manager 默认在 2 秒内合并变更并自动发布第一个配置快照；确认页面出现快照版本后再启动 Gateway。Gateway readiness 同时要求“已安装有效快照”和“已安装 HDFS 配置”；尚未生成快照时返回 `OUT_OF_SERVICE`，Keepalived 不会持有 VIP。页面“强制发布”仅用于主动重推或故障恢复。
 
 ### 3.8 生成和安装 Gateway 证书
 
@@ -574,7 +574,7 @@ Manager 的 8080 页面和 REST API 默认是 HTTP Basic over HTTP。生产必�
 
 ### 3.13 Native 功能验收
 
-确认已完成用户、虚拟目录、HDFS 目录、ACL、流控、配额和首个快照发布，然后执行：
+确认已完成用户、虚拟目录、HDFS 目录、ACL、流控和配额，并已看到自动生成的首个快照版本，然后执行：
 
 ```bash
 ftp <VIP>
