@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.7}"
+VERSION="${1:-0.1.8}"
 ARCH="$(uname -m)"
 MEDIA_NAME="hfg-${VERSION}-linux-x86_64-native"
 DIST_DIR="${ROOT_DIR}/dist"
@@ -53,6 +53,7 @@ install -m 0644 "${ROOT_DIR}/docs/package-deployment.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/deployment.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/configuration.md" "${STAGE_DIR}/docs/"
 install -m 0644 "${ROOT_DIR}/docs/testing.md" "${STAGE_DIR}/docs/"
+install -m 0644 "${ROOT_DIR}/docs/release-notes-v${VERSION}.md" "${STAGE_DIR}/docs/"
 
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GIT_COMMIT="$(git -C "${ROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
