@@ -7,15 +7,20 @@ import jakarta.validation.constraints.*;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/users")
 class UserController {
   private final UserManagementService service;
+  private final JdbcClient db;
+  private final DatabaseDialect dialect;
 
-  UserController(UserManagementService service) {
+  UserController(UserManagementService service, JdbcClient db, DatabaseDialect dialect) {
     this.service = service;
+    this.db = db;
+    this.dialect = dialect;
   }
 
   @GetMapping
@@ -58,6 +63,7 @@ class UserController {
       @PathVariable UUID id,
       @RequestHeader("If-Match") long revision,
       @Valid @RequestBody UpdateRequest r) {
+    ClusterBindingGuard.requireOwnedDirectoriesMatchGroup(db, dialect, id, r.serviceGroupId());
     return UserView.from(
         service.update(
             id,
@@ -92,6 +98,14 @@ class UserController {
   @DeleteMapping("/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   void delete(@PathVariable UUID id) {
+    var directories =
+        db.sql("select name from directory_mapping where owner_user_id=:user order by name")
+            .param("user", dialect.id(id))
+            .query(String.class)
+            .list();
+    if (!directories.isEmpty())
+      throw new IllegalStateException(
+          "用户仍归属目录：" + String.join("、", directories) + "；请先删除目录或将目录转移给其他用户");
     service.delete(id);
   }
 

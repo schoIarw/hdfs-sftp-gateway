@@ -152,7 +152,7 @@ class SystemController {
               + String.join("、", directories)
               + "（绑定 HDFS 连接 "
               + cluster
-              + "，请在“目录管理/权限管理”中先删除目录与授权）");
+              + "，请在“目录管理”中先删除或转移归属目录）");
     if (!online.isEmpty()) reasons.add("在线 Gateway 节点 " + String.join("、", online) + "（请先停止这些网关）");
     return "服务组 “"
         + id

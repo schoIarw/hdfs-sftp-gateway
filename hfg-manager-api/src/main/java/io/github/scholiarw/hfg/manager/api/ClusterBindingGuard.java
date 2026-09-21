@@ -1,43 +1,52 @@
 package io.github.scholiarw.hfg.manager.api;
 
-import java.util.*;
+import java.util.NoSuchElementException;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * A Gateway serves exactly one HDFS connection: the one bound to its service group. Granting a user
  * a directory that lives in another connection would publish a virtual path its Gateway can never
- * resolve, so every write path that links a user to a directory checks the binding here.
+ * resolve, so every directory ownership change checks the binding here.
  */
 final class ClusterBindingGuard {
   private ClusterBindingGuard() {}
 
-  /** Validates a new directory mapping against the cluster its initial user is bound to. */
-  static void requireUserCluster(JdbcClient db, UUID userId, String clusterId) {
+  /** Validates a directory mapping against the cluster its owner is bound to. */
+  static void requireUserCluster(
+      JdbcClient db, DatabaseDialect dialect, UUID userId, String clusterId) {
     String userCluster =
         db.sql(
                 "select g.hdfs_cluster_id from ftp_user u join service_group g on g.id=u.service_group_id where u.id=:u")
-            .param("u", userId)
+            .param("u", dialect.id(userId))
             .query(String.class)
             .optional()
             .orElseThrow(() -> new NoSuchElementException("用户不存在"));
     if (!userCluster.equals(clusterId)) throw mismatch(clusterId, userCluster, null);
   }
 
-  /** Validates an existing directory mapping against the cluster of an existing user. */
-  static void requireGrantCluster(JdbcClient db, UUID userId, UUID directoryId) {
-    List<Map<String, Object>> rows =
+  /** Prevents moving a user to a service group whose HDFS connection cannot serve owned paths. */
+  static void requireOwnedDirectoriesMatchGroup(
+      JdbcClient db, DatabaseDialect dialect, UUID userId, String serviceGroupId) {
+    String targetCluster =
+        db.sql("select hdfs_cluster_id from service_group where id=:group")
+            .param("group", serviceGroupId)
+            .query(String.class)
+            .optional()
+            .orElseThrow(() -> new NoSuchElementException("服务组不存在"));
+    var mismatches =
         db.sql(
-                "select d.name,d.hdfs_cluster_id as directory_cluster,g.hdfs_cluster_id as user_cluster from directory_mapping d join ftp_user u on u.id=:u join service_group g on g.id=u.service_group_id where d.id=:d")
-            .param("u", userId)
-            .param("d", directoryId)
+                "select name,hdfs_cluster_id from directory_mapping where owner_user_id=:user and hdfs_cluster_id<>:cluster order by name")
+            .param("user", dialect.id(userId))
+            .param("cluster", targetCluster)
             .query()
             .listOfRows();
-    if (rows.isEmpty()) throw new NoSuchElementException("用户或目录不存在");
-    Map<String, Object> row = rows.get(0);
-    String directoryCluster = String.valueOf(row.get("directory_cluster"));
-    String userCluster = String.valueOf(row.get("user_cluster"));
-    if (!directoryCluster.equals(userCluster))
-      throw mismatch(directoryCluster, userCluster, String.valueOf(row.get("name")));
+    if (!mismatches.isEmpty()) {
+      String names =
+          mismatches.stream().map(row -> String.valueOf(row.get("name"))).collect(java.util.stream.Collectors.joining("、"));
+      throw new IllegalStateException(
+          "用户归属目录（" + names + "）不属于目标服务组的 HDFS 连接 " + targetCluster + "；请先转移或删除这些目录");
+    }
   }
 
   private static IllegalStateException mismatch(

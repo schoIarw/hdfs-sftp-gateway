@@ -7,7 +7,6 @@ import io.grpc.netty.shaded.io.grpc.netty.*;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -193,44 +192,6 @@ public final class GrpcControlClient implements AutoCloseable {
     stub().reportTransferEvents(request.build());
   }
 
-  public QuotaReservation reserveQuota(UUID userId, String direction, long files, long bytes) {
-    QuotaReservationResponse response =
-        stub()
-            .reserveQuota(
-                QuotaReserveRequest.newBuilder()
-                    .setGatewayId(settings.gatewayId())
-                    .setServiceGroupId(settings.serviceGroupId())
-                    .setUserId(userId.toString())
-                    .setDirection(direction)
-                    .setFiles(files)
-                    .setBytes(bytes)
-                    .build());
-    return new QuotaReservation(
-        UUID.fromString(response.getId()), response.getFiles(), response.getBytes());
-  }
-
-  public void renewQuota(UUID reservationId) {
-    stub()
-        .renewQuota(
-            QuotaRenewRequest.newBuilder()
-                .setGatewayId(settings.gatewayId())
-                .setServiceGroupId(settings.serviceGroupId())
-                .setReservationId(reservationId.toString())
-                .build());
-  }
-
-  public void commitQuota(UUID reservationId, long completedFiles, long completedBytes) {
-    stub()
-        .commitQuota(
-            QuotaCommitRequest.newBuilder()
-                .setGatewayId(settings.gatewayId())
-                .setServiceGroupId(settings.serviceGroupId())
-                .setReservationId(reservationId.toString())
-                .setCompletedFiles(completedFiles)
-                .setCompletedBytes(completedBytes)
-                .build());
-  }
-
   private HfgControlPlaneGrpc.HfgControlPlaneBlockingStub stub() {
     if (channel == null) throw new IllegalStateException("Control-plane channel is not started");
     return HfgControlPlaneGrpc.newBlockingStub(channel).withDeadlineAfter(30, TimeUnit.SECONDS);
@@ -266,5 +227,4 @@ public final class GrpcControlClient implements AutoCloseable {
 
   public record HdfsBundle(byte[] zip, String sha256) {}
 
-  public record QuotaReservation(UUID id, long files, long bytes) {}
 }

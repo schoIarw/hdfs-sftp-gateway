@@ -1,9 +1,7 @@
 package io.github.scholiarw.hfg.manager.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.scholiarw.hfg.contract.HfgException;
 import io.github.scholiarw.hfg.contract.SignedSnapshotEnvelope;
-import io.github.scholiarw.hfg.contract.TransferDirection;
 import io.github.scholiarw.hfg.contract.TransferEvent;
 import io.github.scholiarw.hfg.control.v1.*;
 import io.grpc.Status;
@@ -23,7 +21,6 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
   private final DatabaseDialect dialect;
   private final ObjectMapper mapper;
   private final BusinessLogService businessLogs;
-  private final QuotaReservationService quotas;
   private final ConcurrentMap<String, CopyOnWriteArrayList<StreamObserver<SnapshotEnvelope>>>
       subscribers = new ConcurrentHashMap<>();
 
@@ -33,15 +30,13 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
       HdfsBundleService hdfsBundles,
       DatabaseDialect dialect,
       ObjectMapper mapper,
-      BusinessLogService businessLogs,
-      QuotaReservationService quotas) {
+      BusinessLogService businessLogs) {
     this.publisher = publisher;
     this.db = db;
     this.hdfsBundles = hdfsBundles;
     this.dialect = dialect;
     this.mapper = mapper;
     this.businessLogs = businessLogs;
-    this.quotas = quotas;
   }
 
   @Override
@@ -203,65 +198,6 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
     }
   }
 
-  @Override
-  public void reserveQuota(
-      QuotaReserveRequest request, StreamObserver<QuotaReservationResponse> observer) {
-    if (!authorized(request.getGatewayId(), request.getServiceGroupId(), observer)) return;
-    try {
-      UUID userId = UUID.fromString(request.getUserId());
-      if (!userBelongsToGroup(userId, request.getServiceGroupId()))
-        throw new IllegalArgumentException(
-            "Quota user does not belong to the Gateway service group");
-      var reservation =
-          quotas.reserve(
-              userId,
-              TransferDirection.valueOf(request.getDirection()),
-              request.getFiles(),
-              request.getBytes());
-      observer.onNext(
-          QuotaReservationResponse.newBuilder()
-              .setId(reservation.id().toString())
-              .setFiles(reservation.files())
-              .setBytes(reservation.bytes())
-              .build());
-      observer.onCompleted();
-    } catch (Exception e) {
-      observer.onError(grpcError(e));
-    }
-  }
-
-  @Override
-  public void renewQuota(QuotaRenewRequest request, StreamObserver<OperationAck> observer) {
-    if (!authorized(request.getGatewayId(), request.getServiceGroupId(), observer)) return;
-    try {
-      UUID reservationId = UUID.fromString(request.getReservationId());
-      if (!reservationBelongsToGroup(reservationId, request.getServiceGroupId()))
-        throw new IllegalArgumentException(
-            "Quota reservation does not belong to the Gateway service group");
-      quotas.renew(reservationId);
-      observer.onNext(OperationAck.getDefaultInstance());
-      observer.onCompleted();
-    } catch (Exception e) {
-      observer.onError(grpcError(e));
-    }
-  }
-
-  @Override
-  public void commitQuota(QuotaCommitRequest request, StreamObserver<OperationAck> observer) {
-    if (!authorized(request.getGatewayId(), request.getServiceGroupId(), observer)) return;
-    try {
-      UUID reservationId = UUID.fromString(request.getReservationId());
-      if (!reservationBelongsToGroup(reservationId, request.getServiceGroupId()))
-        throw new IllegalArgumentException(
-            "Quota reservation does not belong to the Gateway service group");
-      quotas.commit(reservationId, request.getCompletedFiles(), request.getCompletedBytes());
-      observer.onNext(OperationAck.getDefaultInstance());
-      observer.onCompleted();
-    } catch (Exception e) {
-      observer.onError(grpcError(e));
-    }
-  }
-
   void broadcast(String group, SignedSnapshotEnvelope envelope) {
     for (var observer : subscribers.getOrDefault(group, new CopyOnWriteArrayList<>()))
       try {
@@ -301,16 +237,6 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
     return false;
   }
 
-  private static io.grpc.StatusRuntimeException grpcError(Exception exception) {
-    Status status =
-        exception instanceof HfgException
-            ? Status.RESOURCE_EXHAUSTED
-            : exception instanceof IllegalArgumentException
-                ? Status.INVALID_ARGUMENT
-                : Status.FAILED_PRECONDITION;
-    return status.withDescription(exception.getMessage()).asRuntimeException();
-  }
-
   /**
    * Events of users that no longer exist are accepted: they are history recorded while the user was
    * still valid, and rejecting them would leave the gateway's event queue permanently stuck. Only
@@ -319,30 +245,11 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
   private boolean userBelongsToAnotherGroup(UUID userId, String serviceGroupId) {
     Integer count =
         db.sql("select count(*) from ftp_user where id=:id and service_group_id<>:group")
-            .param("id", userId)
+            .param("id", dialect.id(userId))
             .param("group", serviceGroupId)
             .query(Integer.class)
             .single();
     return count != null && count > 0;
-  }
-
-  private boolean userBelongsToGroup(UUID userId, String serviceGroupId) {
-    return db.sql("select count(*) from ftp_user where id=:id and service_group_id=:group")
-            .param("id", dialect.id(userId))
-            .param("group", serviceGroupId)
-            .query(Long.class)
-            .single()
-        > 0;
-  }
-
-  private boolean reservationBelongsToGroup(UUID reservationId, String serviceGroupId) {
-    return db.sql(
-                "select count(*) from quota_reservation r join ftp_user u on u.id=r.user_id where r.id=:id and u.service_group_id=:group")
-            .param("id", dialect.id(reservationId))
-            .param("group", serviceGroupId)
-            .query(Long.class)
-            .single()
-        > 0;
   }
 
   private static SnapshotEnvelope proto(SignedSnapshotEnvelope e) {

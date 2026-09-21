@@ -9,7 +9,7 @@ HFG (`hdfs-sftp-gateway`) exposes authenticated FTP and SFTP endpoints while sto
 - Versioned, signed configuration snapshots allow gateways to continue serving published users while Manager is unavailable.
 - Manager imports Hadoop XML and keytab as a validated ZIP; gateways receive HDFS configuration through the authenticated control channel.
 - Manager issues downloadable per-node gateway client certificates using Java cryptography APIs.
-- PostgreSQL 17 or MySQL 8 stores configuration and audit data; a configurable `logs` database stores partitioned transfer and quota analytics.
+- PostgreSQL 17 or MySQL 8 stores configuration and audit data; a configurable `logs` database stores daily partitioned transfer analytics.
 - Prometheus is limited to JVM, process, thread, connection-pool and health metrics; business charts query the `logs` table.
 - Uploads are invisible until committed: write `.uploading/<transfer-id>.part`, close, then atomically rename.
 
@@ -21,7 +21,7 @@ HFG (`hdfs-sftp-gateway`) exposes authenticated FTP and SFTP endpoints while sto
 | `hfg-storage-api` | Storage-neutral read/write/list/quota API |
 | `hfg-storage-hdfs` | Hadoop `FileSystem` implementation and Kerberos `doAs` |
 | `hfg-policy-engine` | Virtual path confinement, ACL and source-IP policy |
-| `hfg-traffic-control` | Bandwidth, concurrency and periodic quota enforcement |
+| `hfg-traffic-control` | Per-user bandwidth and connection-concurrency primitives |
 | `hfg-transfer-core` | Transfer lifecycle, staging, commit and audit events |
 | `hfg-protocol-ftp` | Apache FtpServer adapter |
 | `hfg-protocol-sftp` | Apache MINA SSHD adapter |
@@ -40,9 +40,9 @@ make package
 
 The command validates the frontend and backend, builds the UI, and packages it into:
 
-- `hfg-manager-api/target/hfg-manager-api-0.1.8.jar`
-- `hfg-gateway-app/target/hfg-gateway-app-0.1.8.jar`
-- `hfg-common-contract/target/hfg-common-contract-0.1.8-bootstrap.jar`（CA、Manager 证书和快照密钥一键初始化）
+- `hfg-manager-api/target/hfg-manager-api-0.1.9.jar`
+- `hfg-gateway-app/target/hfg-gateway-app-0.1.9.jar`
+- `hfg-common-contract/target/hfg-common-contract-0.1.9-bootstrap.jar`（CA、Manager 证书和快照密钥一键初始化）
 
 Only Java 17 is needed to run these artifacts. Node.js is a build-time dependency only.
 
@@ -54,7 +54,7 @@ docker compose -f deploy/docker/compose.yaml up -d
 
 Before production deployment, read:
 
-- [HFG 0.1.8 release notes](docs/release-notes-v0.1.8.md)
+- [HFG 0.1.9 release notes](docs/release-notes-v0.1.9.md)
 - [System design and implementation](docs/implementation.md)
 - [Protocol capability matrix](docs/protocol-capability.md)
 - [Configuration reference](docs/configuration.md)

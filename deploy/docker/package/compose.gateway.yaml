@@ -1,6 +1,6 @@
 services:
   hfg-gateway:
-    image: hfg-gateway:${HFG_VERSION:-0.1.8}
+    image: hfg-gateway:${HFG_VERSION:-0.1.9}
     platform: linux/amd64
     network_mode: host
     restart: unless-stopped

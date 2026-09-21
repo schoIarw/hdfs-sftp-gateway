@@ -32,7 +32,7 @@ flowchart TB
 | hfg-storage-api | 顺序读写、目录、原子 rename、配额抽象 | Hadoop |
 | hfg-storage-hdfs | Hadoop FileSystem、Kerberos UGI、proxy user/doAs | FTP/SFTP |
 | hfg-policy-engine | 虚拟路径规范化、最长前缀映射、读写 ACL | 协议 |
-| hfg-traffic-control | Token Bucket、连接/传输并发、周期边界 | 数据库 |
+| hfg-traffic-control | Token Bucket、连接并发 | 数据库 |
 | hfg-transfer-core | 统一上传下载生命周期、暂存提交、事件 | 具体协议 |
 | hfg-protocol-ftp | Apache FtpServer 用户与文件系统适配 | Hadoop |
 | hfg-protocol-sftp | MINA SSHD 认证与 SFTP 文件访问器 | Hadoop |
@@ -40,7 +40,7 @@ flowchart TB
 | hfg-gateway-app | 组装数据面、健康检查、指标、事件 WAL | 管理页面 |
 | hfg-manager-domain | 用户领域服务与乐观锁契约 | Web/JPA |
 | hfg-manager-infrastructure | JPA、Flyway、PostgreSQL/MySQL 实现 | 协议 |
-| hfg-manager-api | REST、gRPC、配额租约、目录配置、审计、Prometheus 代理 | 页面 |
+| hfg-manager-api | REST、gRPC、目录配置、审计、业务看板、Prometheus 代理 | 页面 |
 | hfg-manager-web | new-api 风格管理页面 | Hadoop/数据库 |
 
 ## 4. 数据面流程
@@ -64,27 +64,23 @@ flowchart TB
 
 下载打开 HDFS 输入流后执行 seek，支持从合法偏移读取。实际读取字节数才计入限速与用量，避免以调用方缓冲区容量过度计费。
 
-### 4.4 流控与配额
+### 4.4 流控与目录配额
 
 | 控制项 | 执行位置 | 算法 |
 |---|---|---|
 | 上传/下载字节每秒 | Gateway | 按用户、方向的 Token Bucket |
-| 上传/下载并发 | Gateway | 公平 Semaphore |
-| 最大连接 | FTP 协议层；SFTP 由传输并发约束 | 快照策略 |
-| 周期文件数 | Manager + 管理库 | 事务行锁精确预留 |
-| 周期字节数 | Manager + 管理库 | 64 MiB 租约分段预留 |
+| 最大连接 | FTP/SFTP 协议会话层 | 按用户的连接许可 |
 | HDFS namespace/space quota | HDFS | DistributedFileSystem quota |
 
-配额租约有过期回收。传输完成提交实际用量，失败释放预留；即使 Manager 提交调用异常，本地并发许可也必须释放。周期使用账号配置的时区计算 DAY、WEEK、MONTH 边界。
+流控策略不再包含突发量、上传/下载传输并发、周期文件数或周期字节数。目录级文件数配额使用 HDFS namespace quota，因此其精确语义是该 HDFS 目录树中的文件和子目录项总数；空间配额使用 HDFS space quota。两种配额都只属于单个目录，不在用户之间共享。
 
 ## 5. 管理功能
 
 - 用户：分页查询、创建、修改、启停、删除、重置密码、OpenSSH 公钥管理；上述操作均已接入管理页面。
-- 目录：创建时绑定用户并设置只读/读写权限，同时维护虚拟目录/HDFS 路径映射、自动创建、namespace/space 配额、失败状态与重试。
-- 权限：用户可见目录及只读/读写授权。
-- 流控：字节速率、突发量、连接/传输并发、周期文件数和字节数。
-- 看板：今日汇总、24 小时趋势、用户历史、连接历史、流控窗口。
-- 监控告警：Prometheus instant/range query 代理、规则和通知渠道配置。
+- 目录：每条目录只归属一个用户，在同一页面设置只读/读写权限、虚拟目录/HDFS 路径、自动创建、文件/目录项数配额、空间配额、失败状态与重试；不同用户可分别拥有相同虚拟路径（包括 `/`），不能共享或交叉授权目录。
+- 流控：仅包含按用户的上传字节速率、下载字节速率和最大连接数。
+- 看板：总体业务指标不带用户维度；用户业务指标默认按不同颜色同时展示全部用户，也可筛选单个用户；流控看板读取业务日志的实际传输量和限速状态。
+- 监控告警：Prometheus instant/range query 代理、规则和通知渠道配置；系统管理可隐藏或显示该管理页面入口，不影响指标采集。
 - 系统：上传并解析 HDFS XML/Keytab ZIP、服务组、VIP、Gateway 客户端证书，以及包含 IP/端口的节点心跳状态。
 - 配置发布：用户、密钥、目录、权限、流控或服务组发生成功变更后写入持久化待发布队列；默认 2 秒内合并为版本化 Ed25519 签名快照并经 gRPC 推送到主备 Gateway。周期任务每 5 分钟按配置源摘要检查并修复遗漏，管理页面保留“强制发布”用于故障恢复和主动重推。
 - 审计：所有管理 REST 的 POST、PUT、DELETE 记录操作者、路径、状态、来源和关联 ID，不记录请求体或密钥。
@@ -96,14 +92,13 @@ flowchart TB
 - 自动发布按服务组保存配置源 SHA-256；多 Manager 同时处理或周期检查未发现实际变化时不会产生空版本。人工强制发布不比较源摘要，始终产生更高版本。
 - 传输事件按 `transfer_id` 幂等合并为一条生命周期记录，开始/结束时间和平均速率写入 `logs` 日分区。
 - Gateway 先写本地 JSON Lines WAL，再批量上报，网络失败保留待重试。
-- 周期配额依赖数据库行锁，不能用 Prometheus 指标代替结算账本。Gateway 可以按 64 MiB 粗粒度请求字节租约，Manager 按当前剩余额度部分授予并返回实际值；续传成功时结算暂存文件已有字节与本次新增字节之和，任何预留失败路径都会释放并发许可和已取得租约。
 - 目录创建采用最终一致性：数据库先提交 PENDING，后台任务配置 HDFS，结果变为 READY 或 FAILED。
 
 ## 7. 安全边界
 
 - 生产优先 SFTP；明文 FTP 只能位于可信网络，默认关闭主动模式并固定被动端口范围。
 - Manager gRPC 默认要求双向 TLS；证书 SAN 必须匹配 `HFG_RPC_SERVER_NAME`。Gateway 客户端证书由 Manager 使用 Java 密码学 API 和配置的 CA 签发并下载，私钥只在生成响应中出现一次。
-- Gateway 所有控制面通信统一使用 mTLS gRPC，包括快照/HDFS 包获取、心跳、传输事件和配额租约；Gateway 不保存 Manager HTTP 管理账号密码。
+- Gateway 所有控制面通信统一使用 mTLS gRPC，包括快照/HDFS 包获取、心跳和传输事件；Gateway 不保存 Manager HTTP 管理账号密码。
 - FTP PASV 对外地址由 Manager 按服务组下发 VIP。Gateway 不区分应用层 Active/Standby，统一上报 `SERVING`；Keepalived 独立决定哪台节点持有 VIP。
 - Gateway 启动时校验身份、证书、端口和目录权限；运行期 HDFS 同步与事件上报错误随心跳写入节点状态，管理页面展示 `DEGRADED` 和错误摘要。
 - SFTP 主机密钥必须持久化并在主备节点保持一致。
@@ -127,6 +122,6 @@ Gateway 与 Manager 暴露 `/actuator/health/readiness` 和 `/actuator/prometheu
 
 Manager 启动时识别管理库和日志库方言。管理 Flyway 使用 PostgreSQL 默认迁移目录，MySQL 使用 `classpath:db/mysql`；日志 Flyway 使用独立 history 表。日志数据源未配置时复用管理数据源，配置后建立独立 Hikari 连接池。
 
-传输开始创建 `TRANSFER` 记录，结束事件更新状态、文件大小、结束时间、耗时和平均速率。若 Gateway WAL 只重放结束事件，Manager 会补建终态记录。配额预留、提交和释放在管理事务提交后写入 `QUOTA` 快照。看板查询同时带 `log_date` 条件以触发分区裁剪。
+传输开始创建 `TRANSFER` 记录，结束事件更新状态、文件大小、结束时间、耗时和平均速率。若 Gateway WAL 只重放结束事件，Manager 会补建终态记录。总体看板按时间和方向聚合，不返回用户字段；用户看板按时间、用户和方向分组。看板查询同时带 `log_date` 条件以触发分区裁剪。
 
 PostgreSQL 使用 range 子表，MySQL 使用 RANGE COLUMNS 分区。分区名仅由 UTC 日期生成，不存在用户输入拼接。保留期清理只删除符合固定日期命名规则且早于截止日的分区。

@@ -179,13 +179,12 @@ class SnapshotPublisher {
     List<DirectoryGrant> grants =
         db.sql(
                 "select"
-                    + " d.virtual_path,d.hdfs_path,g.access_mode,d.namespace_quota,d.space_quota_bytes"
-                    + " from directory_grant g join directory_mapping d on"
-                    + " d.id=g.directory_mapping_id join service_group s on s.id=:group where"
-                    + " g.user_id=:u and d.status='ENABLED' and d.hdfs_cluster_id=s.hdfs_cluster_id"
-                    + " order by d.virtual_path,d.hdfs_path,g.access_mode")
+                    + " d.virtual_path,d.hdfs_path,d.access_mode,d.namespace_quota,d.space_quota_bytes"
+                    + " from directory_mapping d join service_group s on s.id=:group where"
+                    + " d.owner_user_id=:u and d.status='ENABLED' and d.hdfs_cluster_id=s.hdfs_cluster_id"
+                    + " order by d.virtual_path,d.hdfs_path,d.access_mode")
             .param("group", row.serviceGroupId())
-            .param("u", row.id())
+            .param("u", dialect.id(row.id()))
             .query(
                 (rs, rowNumber) ->
                     new DirectoryGrant(
@@ -198,28 +197,18 @@ class SnapshotPublisher {
     Set<String> publicKeys =
         new TreeSet<>(
             db.sql("select public_key from ssh_public_key where user_id=:u order by public_key")
-                .param("u", row.id())
+                .param("u", dialect.id(row.id()))
                 .query(String.class)
                 .list());
     TrafficPolicy trafficPolicy =
         db.sql("select * from traffic_policy where user_id=:u")
-            .param("u", row.id())
+            .param("u", dialect.id(row.id()))
             .query(
                 (rs, rowNumber) ->
                     new TrafficPolicy(
                         rs.getLong("upload_bytes_per_second"),
                         rs.getLong("download_bytes_per_second"),
-                        rs.getLong("upload_burst_bytes"),
-                        rs.getLong("download_burst_bytes"),
-                        rs.getInt("max_connections"),
-                        rs.getInt("max_upload_transfers"),
-                        rs.getInt("max_download_transfers"),
-                        rs.getLong("period_upload_files"),
-                        rs.getLong("period_download_files"),
-                        rs.getLong("period_upload_bytes"),
-                        rs.getLong("period_download_bytes"),
-                        TrafficPolicy.Period.valueOf(rs.getString("period")),
-                        rs.getString("time_zone")))
+                        rs.getInt("max_connections")))
             .optional()
             .orElse(TrafficPolicy.unlimited());
     return new UserSnapshot(

@@ -71,7 +71,7 @@ jobs:
         with: {distribution: temurin, java-version: 17, cache: maven}
       - run: >-
           ./mvnw --batch-mode -pl hfg-manager-api -am
-          -Dtest=ManagerContextIntegrationTest,BusinessLogsIntegrationTest
+          -Dtest=ManagerContextIntegrationTest,BusinessLogsIntegrationTest,MultiUserSnapshotIntegrationTest,BusinessDashboardIntegrationTest
           -Dsurefire.failIfNoSpecifiedTests=false test
 
   centos7-compat:
@@ -90,7 +90,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace:ro" \
             -v "${RUNNER_TEMP}/hfg-centos7-bootstrap:/output" \
             quay.io/centos/centos:7 \
-            /opt/java/bin/java -jar /workspace/hfg-common-contract/target/hfg-common-contract-0.1.8-bootstrap.jar \
+            /opt/java/bin/java -jar /workspace/hfg-common-contract/target/hfg-common-contract-0.1.9-bootstrap.jar \
             --output /output --server-name manager.example.com --server-ip 10.0.10.10
           grep -q '^HFG_SNAPSHOT_PRIVATE_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-bootstrap/hfg-manager-bootstrap.env"
           grep -q '^HFG_SNAPSHOT_PUBLIC_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-bootstrap/hfg-gateway-bootstrap.env"
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     env:
-      HFG_RELEASE_VERSION: 0.1.8
+      HFG_RELEASE_VERSION: 0.1.9
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -169,5 +169,5 @@ jobs:
             "target/bom.json#bom.json" \
             --target "$GITHUB_SHA" \
             --title "HFG ${HFG_RELEASE_VERSION} Linux x86_64" \
-            --notes "HFG 0.1.8 adds flow-control and quota P0 fixes, resumable-upload accounting, persistent automatic snapshot publication with periodic reconciliation, and manual force-publish. Native and Docker are independent Linux x86_64 archives. Includes SHA-256 checksums, SBOM, deployment guides, PostgreSQL 17/MySQL 8 verification, and CentOS 7 compatibility checks." \
+            --notes-file docs/release-notes-v0.1.9.md \
             --latest

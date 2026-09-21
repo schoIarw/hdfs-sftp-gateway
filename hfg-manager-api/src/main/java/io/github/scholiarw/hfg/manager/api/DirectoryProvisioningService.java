@@ -13,9 +13,11 @@ import org.springframework.stereotype.Service;
 class DirectoryProvisioningService {
   private static final Logger log = LoggerFactory.getLogger(DirectoryProvisioningService.class);
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
 
-  DirectoryProvisioningService(JdbcClient db) {
+  DirectoryProvisioningService(JdbcClient db, DatabaseDialect dialect) {
     this.db = db;
+    this.dialect = dialect;
   }
 
   @Scheduled(fixedDelayString = "${hfg.directory-provisioning.interval:PT30S}")
@@ -38,7 +40,7 @@ class DirectoryProvisioningService {
     Map<String, Object> r =
         db.sql(
                 "select d.*,h.default_fs,h.kerberos_enabled,h.principal,h.keytab_secret_ref,h.config_resource_refs from directory_mapping d join hdfs_cluster h on h.id=d.hdfs_cluster_id where d.id=:id")
-            .param("id", id)
+            .param("id", dialect.id(id))
             .query()
             .singleRow();
     try {
@@ -66,14 +68,14 @@ class DirectoryProvisioningService {
       db.sql(
               "update directory_mapping set provisioning_status='READY',provisioning_error=null,provisioned_at=:n,updated_at=:n where id=:id")
           .param("n", java.sql.Timestamp.from(Instant.now()))
-          .param("id", id)
+          .param("id", dialect.id(id))
           .update();
     } catch (Exception e) {
       db.sql(
               "update directory_mapping set provisioning_status='FAILED',provisioning_error=:e,updated_at=:n where id=:id")
           .param("e", truncate(describe(e)))
           .param("n", java.sql.Timestamp.from(Instant.now()))
-          .param("id", id)
+          .param("id", dialect.id(id))
           .update();
       throw new IllegalStateException("Cannot provision HDFS directory " + id, e);
     }

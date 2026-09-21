@@ -23,33 +23,35 @@ npm run build
 | 续传 | 只允许暂存 EOF，拒绝任意偏移 |
 | HDFS 适配 | 本地 Hadoop FileSystem 的读写、列表、rename |
 | 限速 | 确定性时钟下 Token Bucket refill、大请求分段 |
-| 周期 | DAY/WEEK/MONTH、时区与 DST 边界 |
-| 并发 | 配额预留或提交异常仍释放 Gateway 并发许可 |
-| 小配额 | 小于 64 MiB 或窗口尾部不足 64 MiB 时按 Manager 实际授予额度传输，不提前拒绝 |
-| 断点续传 | 成功结算暂存文件已有字节与本次新增字节之和，不能通过续传绕过周期额度 |
+| 多用户认证 | 同一快照中两个用户分别通过 FTP/SFTP 认证，密码不能串用 |
+| 连接并发 | SFTP 达到用户最大连接数后拒绝新会话，关闭会话后释放许可 |
+| 目录隔离 | 两个用户可分别拥有 `/`，快照只给每个用户下发自己的目录和权限 |
 | 快照 | SHA-256、Ed25519、篡改拒绝 |
-| SFTP | authorized_keys 注释规范化、公钥校验 |
+| SFTP | authorized_keys 注释规范化、公钥校验、多用户密码认证、连接并发 |
 | API | OpenSSH 公钥格式和 SHA-256 指纹 |
 | HDFS 配置包 | 仅提取 XML/keytab、ZIP Slip 拒绝 |
 | 用户 | 密码哈希与 revision 冲突 |
 | 前端 | 字节格式化、登录凭据生命周期、签名快照版本解析、TypeScript |
-| 数据库 | PostgreSQL/MySQL 管理迁移、日志迁移、UTC 日分区创建与 Manager 启动 |
+| 业务指标 | 总体聚合不含用户字段，全部用户分别成序列，按用户筛选只返回目标用户 |
+| 数据库 | PostgreSQL/MySQL 管理迁移、单用户目录约束、日志迁移、UTC 日分区创建与 Manager 启动 |
 
 ## 3. 集成环境
 
-准备两台 Gateway、一套 HDFS HA、Kerberos KDC、PostgreSQL 或 MySQL、独立 logs 库、两台 Manager、Prometheus、Keepalived VIP 和一台协议测试机。测试账号至少包含：读写、只读、禁用、过期、无配额、低配额、低速率和公钥认证用户。
+准备两台 Gateway、一套 HDFS HA、Kerberos KDC、PostgreSQL 或 MySQL、独立 logs 库、两台 Manager、Prometheus、Keepalived VIP 和一台协议测试机。测试账号至少包含：两个普通用户、读写、只读、禁用、过期、目录低配额、低速率、低连接数和公钥认证用户。
 
 ## 4. 协议验收
 
 | ID | 场景 | 预期 |
 |---|---|---|
 | FTP-01 | 正确/错误密码登录 | 成功 / 530 |
+| FTP-01A | 连续创建两个用户并分别登录 | 两者均成功；第二个用户不受第一个用户缓存影响 |
 | FTP-02 | PASV 上传 1 B、64 MiB、10 GiB | HDFS 内容与摘要一致 |
 | FTP-03 | LIST/RETR/REST | 列表正确、下载摘要一致、偏移正确 |
 | FTP-04 | 只读目录 STOR/DELE/RNTO | 550 |
 | FTP-05 | 上传中断后从 EOF 续传 | 最终摘要一致 |
 | FTP-06 | 非 EOF 续传 | 明确拒绝且暂存文件不损坏 |
 | SFTP-01 | 密码与公钥认证 | 都可登录；未知 key 拒绝 |
+| SFTP-01A | 两个用户分别用各自密码登录 | 两者均成功，交叉使用密码均失败 |
 | SFTP-02 | put/get/readdir/stat/rename/remove | 与 HDFS 一致 |
 | SFTP-03 | symlink/setstat/shell/exec | 拒绝 |
 | SFTP-04 | 路径包含多级 `..` | 不越出虚拟根 |
@@ -57,15 +59,13 @@ npm run build
 
 每个上传完成后比较客户端 SHA-256 与 HDFS `hdfs dfs -checksum`/下载 SHA-256，并确认最终目录没有遗留已提交的 part 文件。
 
-## 5. 流控与配额验收
+## 5. 流控与目录配额验收
 
 1. 将上传和下载设为 10 MiB/s，分别单流、双流持续 120 秒，统计 10 秒滑窗；长期平均应在配置值允许误差内。
-2. 并发设为 2，同时发起 3 个传输；第三个应快速返回限流错误，不得无限等待。
-3. DAY/WEEK/MONTH 分别测试文件数和字节数达到上限、超限拒绝、边界后恢复。
-4. 在 Asia/Shanghai 与 America/New_York 的 DST 切换点测试窗口计算。
-5. 传输失败、Gateway kill -9、Manager 暂停时验证租约过期回收且不重复结算。
-6. 修改策略后等待自动发布，不重启 Gateway；下一次新传输使用新策略。随后点击“强制发布”，确认即使内容未变化仍生成更高版本并重推。
-7. 暂停自动发布处理或制造一次临时失败，确认持久化请求会重试；清除待发布请求后等待周期一致性检查，确认遗漏配置自动补发。
+2. 最大连接数设为 2，同时建立 3 个 FTP 会话和 3 个 SFTP 会话；第三个应快速拒绝，关闭一个会话后可再次登录。
+3. 分别达到目录文件/目录项数配额和空间配额，确认 HDFS 拒绝新增内容；其他用户和其他目录不受影响。
+4. 修改策略后等待自动发布，不重启 Gateway；下一次新连接/传输使用新策略。随后点击“强制发布配置”，确认即使内容未变化仍生成更高版本并重推。
+5. 暂停自动发布处理或制造一次临时失败，确认持久化请求会重试；清除待发布请求后等待周期一致性检查，确认遗漏配置自动补发。
 
 ## 6. 高可用与故障注入
 
@@ -94,7 +94,7 @@ npm run build
 | CFG-05 | HDFS/runtime、事件 WAL 目录不可写，或启用 SFTP 但 host key 缺失/不可读 | 启动失败，日志指出具体路径和运行账号权限；不会静默生成不同 host key |
 | CFG-06 | RPC Host 与证书 SAN 不一致 | TLS 认证失败，日志提示检查 `HFG_RPC_SERVER_NAME`；正确覆盖后恢复 |
 | CFG-07 | HDFS 配置同步或事件上报持续失败 | Manager 节点列表显示 `DEGRADED` 和错误摘要，恢复后回到 `UP` |
-| CFG-08 | 上传下载产生事件并触发周期配额 | 仅通过 19090 mTLS gRPC 完成，Gateway 无 Manager HTTP 用户名/密码 |
+| CFG-08 | 上传下载产生业务事件 | 仅通过 19090 mTLS gRPC 上报，Gateway 无 Manager HTTP 用户名/密码 |
 | CFG-09 | 同一服务组内两台 Gateway 上报相同操作系统主机名 | Manager 拒绝后注册节点，Gateway 日志明确显示重复主机名和服务组 |
 | CFG-10 | 运行 `hfg-bootstrap.jar` 后再次对同一目录运行 | 首次证书链/SAN/快照签名校验通过；第二次拒绝覆盖任何已有密钥 |
 | CFG-11 | 下载 Gateway 证书 ZIP | 包内身份、服务组、证书路径和快照公钥完整；仅填写 RPC Host/节点 IP 即可启动 |
@@ -124,7 +124,7 @@ npm run build
 1. 分别以 PostgreSQL 和 MySQL 启动 Manager，确认管理迁移与日志迁移 history 表互不冲突。
 2. 上报 STARTED/COMPLETED、FAILED、ABORTED 事件，核对用户名、文件名、字节、开始结束时间、耗时和平均速率，并验证重复 WAL 上报不重复计数。
 3. 跨 UTC 00:00 传输，确认记录在完成时迁移至结束事件的日期分区且每日汇总正确。
-4. 触发配额预留、提交、过期释放，确认 `QUOTA` 快照与管理库最终值一致。
+4. 查询总体历史，确认按时间/方向聚合且不含 `user_id`、`username`；查询用户历史时默认返回多个独立用户序列，指定用户后只返回该用户。
 5. 查询总览、用户历史、实时连接、流控当前/历史接口，确认 SQL 使用 `log_date` 分区裁剪。
 6. 抓取 `/actuator/prometheus`，确认不再存在文件路径、用户名、transfer ID 或业务传输计数；JVM、进程、线程、Hikari 和健康指标仍可用。
 7. 使用中央 Prometheus 抓取绑定管理网地址的 Gateway，确认 Targets 为 `UP`，且 `HfgProcessCpuHigh` 能匹配 `application="hfg-gateway"`。

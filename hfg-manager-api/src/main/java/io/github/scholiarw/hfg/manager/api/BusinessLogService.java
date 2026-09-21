@@ -6,8 +6,6 @@ import java.time.*;
 import java.util.*;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 final class BusinessLogService {
@@ -28,22 +26,6 @@ final class BusinessLogService {
           else complete(jdbc, event);
           return null;
         });
-  }
-
-  void recordQuotaAfterCommit(
-      UUID userId, TransferDirection direction, Instant windowStart, String status) {
-    Runnable write = () -> recordQuota(userId, direction, windowStart, status);
-    if (TransactionSynchronizationManager.isActualTransactionActive()) {
-      TransactionSynchronizationManager.registerSynchronization(
-          new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-              write.run();
-            }
-          });
-    } else {
-      write.run();
-    }
   }
 
   private void insertStarted(JdbcClient jdbc, TransferEvent e) {
@@ -107,50 +89,6 @@ final class BusinessLogService {
         .param("correlation", e.correlationId());
   }
 
-  private void recordQuota(UUID userId, TransferDirection direction, Instant start, String status) {
-    Map<String, Object> row =
-        management
-            .sql(
-                "select u.username,w.window_start,w.window_end,w.completed_files,w.completed_bytes,w.reserved_files,w.reserved_bytes,"
-                    + "case when w.direction='UPLOAD' then p.period_upload_files else p.period_download_files end file_limit,"
-                    + "case when w.direction='UPLOAD' then p.period_upload_bytes else p.period_download_bytes end byte_limit "
-                    + "from usage_window w join ftp_user u on u.id=w.user_id join traffic_policy p on p.user_id=w.user_id "
-                    + "where w.user_id=:user and w.direction=:direction and w.window_start=:start")
-            .param("user", managementDialect.id(userId))
-            .param("direction", direction.name())
-            .param("start", java.sql.Timestamp.from(start))
-            .query()
-            .singleRow();
-    long fileLimit = number(row.get("file_limit")), byteLimit = number(row.get("byte_limit"));
-    long files = number(row.get("completed_files")) + number(row.get("reserved_files"));
-    long bytes = number(row.get("completed_bytes")) + number(row.get("reserved_bytes"));
-    boolean reached =
-        (fileLimit > 0 && files >= fileLimit) || (byteLimit > 0 && bytes >= byteLimit);
-    Instant now = Instant.now();
-    String sql =
-        "insert into logs(log_date,record_type,log_id,user_id,username,direction,status,window_start,window_end,completed_files,completed_bytes,reserved_files,reserved_bytes,file_limit,byte_limit,quota_reached,created_at,updated_at) "
-            + "values(:day,'QUOTA',:id,:user,:username,:direction,:status,:start,:end,:cf,:cb,:rf,:rb,:fl,:bl,:reached,:now,:now)";
-    logs.jdbc()
-        .sql(sql)
-        .param("day", LocalDate.ofInstant(now, ZoneOffset.UTC))
-        .param("id", logs.id(UUID.randomUUID()))
-        .param("user", logs.id(userId))
-        .param("username", row.get("username"))
-        .param("direction", direction.name())
-        .param("status", status)
-        .param("start", row.get("window_start"))
-        .param("end", row.get("window_end"))
-        .param("cf", row.get("completed_files"))
-        .param("cb", row.get("completed_bytes"))
-        .param("rf", row.get("reserved_files"))
-        .param("rb", row.get("reserved_bytes"))
-        .param("fl", fileLimit)
-        .param("bl", byteLimit)
-        .param("reached", reached)
-        .param("now", Timestamp.from(now))
-        .update();
-  }
-
   private String username(UUID userId) {
     return management
         .sql("select username from ftp_user where id=:id")
@@ -174,9 +112,5 @@ final class BusinessLogService {
     if (value instanceof LocalDateTime local) return local.toInstant(ZoneOffset.UTC);
     if (value instanceof OffsetDateTime offset) return offset.toInstant();
     throw new IllegalArgumentException("Unsupported timestamp value: " + value.getClass());
-  }
-
-  private static long number(Object value) {
-    return value == null ? 0 : ((Number) value).longValue();
   }
 }

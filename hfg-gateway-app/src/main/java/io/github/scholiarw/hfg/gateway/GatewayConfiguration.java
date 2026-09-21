@@ -53,8 +53,8 @@ class GatewayConfiguration {
   }
 
   @Bean
-  TransferLimiter transferLimiter(HttpQuotaLeaseClient quotas) {
-    return new LocalTransferLimiter(quotas);
+  TransferLimiter transferLimiter() {
+    return new LocalTransferLimiter();
   }
 
   @Bean

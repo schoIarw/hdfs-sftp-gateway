@@ -125,7 +125,7 @@ class HdfsBundleService {
             .query(String.class)
             .list(),
         db.sql(
-                "select d.name||'（含 '||(select count(*) from directory_grant g where g.directory_mapping_id=d.id)||' 条用户授权）' from directory_mapping d where d.hdfs_cluster_id=:id order by d.name")
+                "select d.name from directory_mapping d where d.hdfs_cluster_id=:id order by d.name")
             .param("id", id)
             .query(String.class)
             .list());
@@ -171,7 +171,7 @@ class HdfsBundleService {
             + id
             + "” 仍有关联，无法删除："
             + String.join("；", references)
-            + "。请先删除绑定的服务组，并在“目录管理/权限管理”中删除目录映射及其用户授权后再删除该连接");
+            + "。请先删除绑定的服务组，并在“目录管理”中删除目录映射后再删除该连接");
   }
 
   static void requireValidId(String id) {

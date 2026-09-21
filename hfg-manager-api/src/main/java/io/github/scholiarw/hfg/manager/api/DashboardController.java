@@ -2,8 +2,6 @@ package io.github.scholiarw.hfg.manager.api;
 
 import java.time.*;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,17 +10,14 @@ import org.springframework.web.bind.annotation.*;
 class DashboardController {
   private final JdbcClient management;
   private final LogsStore logs;
-  private final DatabaseDialect managementDialect;
   private final DirectoryUsageService directoryUsage;
 
   DashboardController(
       JdbcClient management,
       LogsStore logs,
-      DatabaseDialect managementDialect,
       DirectoryUsageService directoryUsage) {
     this.management = management;
     this.logs = logs;
-    this.managementDialect = managementDialect;
     this.directoryUsage = directoryUsage;
   }
 
@@ -86,6 +81,37 @@ class DashboardController {
     return historyQuery(userId, from, to, bucket);
   }
 
+  /**
+   * Business metrics grouped by user. With no user filter every user remains a separate series;
+   * this is intentionally different from the overall history endpoint, which has no user
+   * dimension.
+   */
+  @GetMapping("/user-history")
+  List<Map<String, Object>> userHistory(
+      @RequestParam Instant from,
+      @RequestParam Instant to,
+      @RequestParam(defaultValue = "hour") String bucket,
+      @RequestParam(required = false) UUID userId) {
+    validate(from, to);
+    String filter = userId == null ? "" : " and user_id=:user";
+    JdbcClient.StatementSpec statement =
+        logs.jdbc()
+            .sql(
+                "select "
+                    + bucketExpression(bucket, "ended_at")
+                    + " bucket,user_id,username,direction,sum(file_size_bytes) bytes,count(*) files "
+                    + "from logs where record_type='TRANSFER' and status='COMPLETED' and log_date>=:fromDay "
+                    + "and log_date<=:toDay and ended_at>=:from and ended_at<:to"
+                    + filter
+                    + " group by 1,2,3,4 order by 1,3,4")
+            .param("fromDay", utcDate(from))
+            .param("toDay", utcDate(to))
+            .param("from", java.sql.Timestamp.from(from))
+            .param("to", java.sql.Timestamp.from(to));
+    if (userId != null) statement = statement.param("user", logs.id(userId));
+    return statement.query().listOfRows();
+  }
+
   @GetMapping("/users/{userId}/connections")
   List<Map<String, Object>> connections(
       @PathVariable UUID userId, @RequestParam Instant from, @RequestParam Instant to) {
@@ -141,56 +167,21 @@ class DashboardController {
 
   @GetMapping("/flow-control")
   List<Map<String, Object>> flowControl() {
-    List<Map<String, Object>> policies =
+    List<Map<String, Object>> result =
         management
             .sql(
-                "select u.id user_id,u.username,p.* from ftp_user u left join traffic_policy p on p.user_id=u.id order by u.username")
+                "select u.id user_id,u.username,coalesce(p.upload_bytes_per_second,0) upload_bytes_per_second,coalesce(p.download_bytes_per_second,0) download_bytes_per_second,coalesce(p.max_connections,0) max_connections from ftp_user u left join traffic_policy p on p.user_id=u.id order by u.username")
             .query()
             .listOfRows();
-    Map<String, Map<String, Object>> latest =
-        latestQuota().stream()
-            .collect(
-                Collectors.toMap(
-                    row -> String.valueOf(row.get("user_id")) + "|" + row.get("direction"),
-                    Function.identity(),
-                    (a, b) -> a));
-    List<Map<String, Object>> result = new ArrayList<>();
-    for (Map<String, Object> policy : policies)
+    for (Map<String, Object> row : result) {
       for (String direction : List.of("UPLOAD", "DOWNLOAD")) {
-        Map<String, Object> row = new LinkedHashMap<>(policy);
-        row.put("direction", direction);
-        Map<String, Object> quota =
-            latest.get(String.valueOf(policy.get("user_id")) + "|" + direction);
-        if (quota != null) row.putAll(quota);
-        else {
-          row.put("completed_files", 0L);
-          row.put("completed_bytes", 0L);
-          row.put("reserved_files", 0L);
-          row.put("reserved_bytes", 0L);
-          row.put("quota_reached", false);
-        }
-        long currentRate =
-            logs.jdbc()
-                .sql(
-                    "select coalesce(sum(file_size_bytes),0)/60 from logs where record_type='TRANSFER' "
-                        + "and user_id=:user and direction=:direction and status='COMPLETED' "
-                        + "and log_date>=:day and ended_at>=:cutoff")
-                .param("user", logs.id(policy.get("user_id")))
-                .param("direction", direction)
-                .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
-                .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
-                .query(Long.class)
-                .single();
-        row.put("recent_bytes_per_second", currentRate);
-        long limit =
-            number(
-                policy.get(
-                    direction.equals("UPLOAD")
-                        ? "upload_bytes_per_second"
-                        : "download_bytes_per_second"));
-        row.put("rate_limit_reached", limit > 0 && currentRate >= Math.ceil(limit * .95));
-        result.add(row);
+        long currentRate = recentRate(row.get("user_id"), direction);
+        String prefix = direction.toLowerCase();
+        long limit = number(row.get(prefix + "_bytes_per_second"));
+        row.put(prefix + "_recent_bytes_per_second", currentRate);
+        row.put(prefix + "_rate_limit_reached", limit > 0 && currentRate >= Math.ceil(limit * .95));
       }
+    }
     return result;
   }
 
@@ -200,17 +191,32 @@ class DashboardController {
     validate(from, to);
     return logs.jdbc()
         .sql(
-            "select user_id,username,direction,window_start,window_end,completed_files,completed_bytes,"
-                + "reserved_files,reserved_bytes,file_limit,byte_limit,quota_reached,status,updated_at "
-                + "from (select l.*,row_number() over(partition by user_id,direction,window_start order by updated_at desc) rn "
-                + "from logs l where record_type='QUOTA' and log_date>=:fromDay and log_date<=:toDay "
-                + "and window_start<:to and window_end>:from) q where rn=1 order by window_start desc,username,direction")
-        .param("fromDay", utcDate(from).minusDays(1))
-        .param("toDay", utcDate(to).plusDays(1))
+            "select "
+                + bucketExpression("minute", "ended_at")
+                + " bucket,user_id,username,direction,sum(file_size_bytes) bytes,count(*) files "
+                + "from logs where record_type='TRANSFER' and status='COMPLETED' and log_date>=:fromDay "
+                + "and log_date<=:toDay and ended_at>=:from and ended_at<:to "
+                + "group by 1,2,3,4 order by 1 desc,3,4")
+        .param("fromDay", utcDate(from))
+        .param("toDay", utcDate(to))
         .param("from", java.sql.Timestamp.from(from))
         .param("to", java.sql.Timestamp.from(to))
         .query()
         .listOfRows();
+  }
+
+  private long recentRate(Object userId, String direction) {
+    return logs.jdbc()
+        .sql(
+            "select coalesce(sum(file_size_bytes),0)/60 from logs where record_type='TRANSFER' "
+                + "and user_id=:user and direction=:direction and status='COMPLETED' "
+                + "and log_date>=:day and ended_at>=:cutoff")
+        .param("user", logs.id(userId))
+        .param("direction", direction)
+        .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(1))
+        .param("cutoff", java.sql.Timestamp.from(Instant.now().minusSeconds(60)))
+        .query(Long.class)
+        .single();
   }
 
   private List<Map<String, Object>> historyQuery(
@@ -232,16 +238,6 @@ class DashboardController {
             .param("to", java.sql.Timestamp.from(to));
     if (userId != null) statement = statement.param("user", logs.id(userId));
     return statement.query().listOfRows();
-  }
-
-  private List<Map<String, Object>> latestQuota() {
-    return logs.jdbc()
-        .sql(
-            "select * from (select l.*,row_number() over(partition by user_id,direction order by updated_at desc) rn "
-                + "from logs l where record_type='QUOTA' and log_date>=:day) q where rn=1")
-        .param("day", LocalDate.now(ZoneOffset.UTC).minusDays(400))
-        .query()
-        .listOfRows();
   }
 
   private String bucketExpression(String bucket, String column) {

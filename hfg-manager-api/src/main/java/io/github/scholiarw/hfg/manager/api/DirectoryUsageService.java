@@ -15,16 +15,18 @@ import org.springframework.stereotype.Service;
 @Service
 class DirectoryUsageService {
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
 
-  DirectoryUsageService(JdbcClient db) {
+  DirectoryUsageService(JdbcClient db, DatabaseDialect dialect) {
     this.db = db;
+    this.dialect = dialect;
   }
 
   List<Map<String, Object>> forUser(UUID userId) {
     return db
         .sql(
-            "select d.name,d.virtual_path,d.hdfs_path,d.namespace_quota,d.space_quota_bytes,h.default_fs,h.kerberos_enabled,h.principal,h.keytab_secret_ref,h.config_resource_refs from directory_grant g join directory_mapping d on d.id=g.directory_mapping_id join hdfs_cluster h on h.id=d.hdfs_cluster_id where g.user_id=:u and d.status='ENABLED' order by d.virtual_path")
-        .param("u", userId)
+            "select d.name,d.virtual_path,d.hdfs_path,d.namespace_quota,d.space_quota_bytes,h.default_fs,h.kerberos_enabled,h.principal,h.keytab_secret_ref,h.config_resource_refs from directory_mapping d join hdfs_cluster h on h.id=d.hdfs_cluster_id where d.owner_user_id=:u and d.status='ENABLED' order by d.virtual_path")
+        .param("u", dialect.id(userId))
         .query()
         .listOfRows()
         .stream()

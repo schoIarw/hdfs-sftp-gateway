@@ -23,7 +23,7 @@ Manager 生成的每节点证书 ZIP 同时包含 `hfg-gateway-bootstrap.env`。
 将该文件原样安装到 `/etc/hfg/hfg-gateway-bootstrap.env`；systemd 会在主配置之后加载它。
 手工启动或 Docker 启动时也必须同时加载这两个环境文件。
 
-Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输事件、申请精确配额，不再配置 Manager HTTP URL、用户名或密码。FTP PASV 对外地址由 Manager 根据 `HFG_SERVICE_GROUP_ID` 下发服务组 VIP；节点角色固定上报为 `SERVING`，实际流量归属由 Keepalived 决定。
+Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输事件，不再配置 Manager HTTP URL、用户名或密码。FTP PASV 对外地址由 Manager 根据 `HFG_SERVICE_GROUP_ID` 下发服务组 VIP；节点角色固定上报为 `SERVING`，实际流量归属由 Keepalived 决定。
 
 以下参数有默认值，只在现场值不同时配置：
 
@@ -64,18 +64,18 @@ Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地
 
 每个 Gateway 进程通过 `HFG_SERVICE_GROUP_ID` 绑定一个服务组，服务组再绑定一个 HDFS 连接，因此**单个 Gateway 只连接一个 Hadoop 集群**，`HFG_HDFS_RUNTIME_PATH` 下只保存该集群的一份配置包。需要同时接入多个 Hadoop 集群时，按服务组部署多个 Gateway 进程（各自独立的 `HFG_GATEWAY_ID`、证书、端口和运行目录），Manager 中一个 HDFS 连接可被多个服务组复用，但同一个服务组只会就近访问自己绑定的连接。
 
-为避免下发 Gateway 无法解析的虚拟路径，Manager 会拒绝把属于其它 HDFS 连接的目录授权给用户（接口返回 409 并说明两个连接标识），发布快照时也只包含与本服务组 HDFS 连接一致的目录映射。若历史上已经存在跨连接授权，快照会忽略这些映射，需要管理员改绑目录或调整用户服务组。
+每条目录映射只归属一个用户，权限仅可设为只读或读写，不再存在多用户共享目录或交叉授权。不同用户拥有独立虚拟命名空间，因此可分别配置相同虚拟路径（例如都使用 `/`）。为避免下发 Gateway 无法解析的虚拟路径，Manager 会拒绝把其它 HDFS 连接的目录分配给用户，也会拒绝把仍拥有目录的用户迁移到绑定不同 HDFS 连接的服务组；发布快照时仅包含用户自己的归属目录。
 
 ## 删除顺序与关联保护
 
 Manager 采用“自下而上、有关联就拦”的删除规则，所有删除前都需要二次确认，被拒绝时会弹出提示框列出具体关联对象：
 
-1. **HDFS 连接**：只要还有服务组绑定，或该连接下还有目录映射（提示会带上目录拥有的用户授权条数）就不能删除；需先删除服务组，并在“目录管理/权限管理”中删除目录映射及其授权。
+1. **HDFS 连接**：只要还有服务组绑定，或该连接下还有目录映射就不能删除；需先删除服务组，并在“目录管理”中删除目录映射。
 2. **VIP 服务组**：只要还有用户属于该组，或该组绑定的 HDFS 连接下还有目录映射，就阻止删除；归属该组的 Gateway 只有在**在线**（30 秒内还有心跳）时才阻止删除，已停止、异常或失联的节点会随服务组一起清理（同时清理该组的客户端证书与已发布快照）。
-3. **用户**：删除后其登录、公钥与目录授权立即失效。
-4. **目录映射**：删除目录映射会同时删除该目录上的用户授权（数据库级联），之后才能删除 HDFS 连接。
+3. **用户**：只要仍有归属目录就不能删除；应先删除目录或把目录转移给其他用户。
+4. **目录映射**：删除映射不删除 HDFS 上的实际数据，之后才能删除 HDFS 连接。
 
-典型清理顺序：用户 → 目录映射与授权 → 服务组 → HDFS 连接。所有删除按钮都会弹出确认框，删除失败时用弹框展示后端给出的原因，而不是一闪而过的提示。
+典型清理顺序：目录映射 → 用户 → 服务组 → HDFS 连接。列表操作统一通过复选框选择对象，再使用页面顶部按钮；删除失败时展示后端给出的关联原因。
 
 ## Gateway 日志输出
 
@@ -115,7 +115,7 @@ Gateway 只输出必要信息：Apache FtpServer 默认的逐条命令与应答�
 | HFG_RPC_ENABLED / HFG_RPC_PORT | 默认 `true` / `19090`；仅本地演示可关闭 RPC |
 | HFG_RPC_CA_KEY_PASSWORD | 仅外部 CA 私钥为加密 PEM 时配置；一键工具生成的私钥无需配置 |
 
-用户、SSH 公钥、目录、权限、流控策略和服务组通过管理 API 成功变更后，Manager 会把所有启用服务组写入持久化待发布队列，默认在 2 秒内合并并自动发布。周期一致性检查使用配置源摘要补偿进程中断或临时数据库故障；没有实际变化时不增加快照版本。页面“强制发布”按钮始终生成更高版本并主动重推，适用于现场故障恢复，不再是正常配置生效的必需步骤。
+用户、SSH 公钥、目录、流控策略和服务组通过管理 API 成功变更后，Manager 会把所有启用服务组写入持久化待发布队列，默认在 2 秒内合并并自动发布。周期一致性检查使用配置源摘要补偿进程中断或临时数据库故障；没有实际变化时不增加快照版本。页面“强制发布配置”按钮始终生成更高版本并主动重推，适用于现场故障恢复，不是正常配置生效的必需步骤。
 
 其中真正必须人工填写的是数据库连接和初始管理员密码；独立日志库和 Prometheus 地址按部署选择填写。
 `HFG_GATEWAY_CERT_VALIDITY_DAYS`、`HFG_HDFS_BUNDLE_PATH`、连接池、保留期和端口均有默认值。
@@ -123,7 +123,7 @@ Gateway 只输出必要信息：Apache FtpServer 默认的逐条命令与应答�
 `HFG_RPC_SERVER_KEY`、`HFG_RPC_CA`、`HFG_RPC_CA_KEY` 由初始化工具写入单独的
 `/etc/hfg/hfg-manager-bootstrap.env`，不要复制到主配置文件。
 
-Manager 的“监控告警”页面通过 `HFG_PROMETHEUS_URL` 代理 PromQL 查询：`HFG_PROMETHEUS_ENABLED=false` 时该功能整体关闭（页面显示未开启，接口返回 503），需要认证时配置 `HFG_PROMETHEUS_TOKEN`（Bearer）或 `HFG_PROMETHEUS_USERNAME`/`HFG_PROMETHEUS_PASSWORD`（Basic）。
+Manager 的“监控告警”页面通过 `HFG_PROMETHEUS_URL` 代理 PromQL 查询：`HFG_PROMETHEUS_ENABLED=false` 时查询功能关闭（接口返回 503），需要认证时配置 `HFG_PROMETHEUS_TOKEN`（Bearer）或 `HFG_PROMETHEUS_USERNAME`/`HFG_PROMETHEUS_PASSWORD`（Basic）。系统管理中的“显示监控告警面板”开关只控制导航入口和页面可见性，配置保存在管理库，不会停止 Actuator 暴露、Prometheus 抓取或告警规则执行。
 
 HDFS 接入只接受最大 32 MiB 的 ZIP，解压后的 XML/keytab 总量不得超过 128 MiB。包内至少包含一个 `.keytab` 和定义了 `fs.defaultFS` 的 Hadoop XML。Manager 会防止 Zip Slip、忽略其他文件、从 keytab 自动读取 principal，并保存 SHA-256。当前版本选择发现的第一个 keytab 及其第一个 principal，因此生产 ZIP 应只包含一个目标 keytab，并在上传前使用 `klist -kte` 确认身份。FTP/SFTP 用户没有 HDFS 用户字段，所有 HDFS 操作均使用 keytab 服务身份，数据权限由 HFG 虚拟目录 ACL 控制。
 
@@ -182,7 +182,7 @@ Gateway 默认只在 `127.0.0.1:18080` 暴露 Actuator，适合本机 Keepalived
 
 ## 管理库与业务日志库
 
-HFG 支持 PostgreSQL 17 和 MySQL 8.0+（推荐 8.4 LTS）。管理库保存用户、目录、权限、配置快照、审计和强一致配额账本。业务日志库的 `logs` 表保存上传/下载方向、协议、状态、用户、虚拟路径、文件名、文件字节数、开始/结束时间、耗时、平均传输速率，以及配额窗口快照。
+HFG 支持 PostgreSQL 17 和 MySQL 8.0+（推荐 8.4 LTS）。管理库保存用户、单用户归属目录及权限、流控策略、配置快照和审计。业务日志库的 `logs` 表保存上传/下载方向、协议、状态、用户、虚拟路径、文件名、文件字节数、开始/结束时间、耗时和平均传输速率。
 
 `logs` 按 UTC 日期分区。Manager 启动时执行独立 Flyway 日志迁移，创建当天和未来分区，并按保留期删除过期分区。所有 Manager 主机和数据库会话应使用 UTC。日志库可与管理库同库，也可独立部署；独立部署时数据库需预先创建，账号需具有建表、建索引和分区 DDL 权限。
 
@@ -202,4 +202,4 @@ HFG_UUID_JDBC_TYPE=CHAR
 HFG_LOGS_DB_URL='jdbc:mysql://logs-db:3306/hfg_logs?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8'
 ```
 
-周期配额判断仍使用管理库的 `usage_window` 和 `quota_reservation` 事务行锁；`logs` 保存事务提交后的快照供看板查询，不参与并发扣减。
+流控策略只包含上传速率、下载速率和最大连接数。文件/目录项数及空间配额配置在单个目录上并由 HDFS quota 强制执行；`logs` 只用于业务指标查询，不参与流控或配额扣减。

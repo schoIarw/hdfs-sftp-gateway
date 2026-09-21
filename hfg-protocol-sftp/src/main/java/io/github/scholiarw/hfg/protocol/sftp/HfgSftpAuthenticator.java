@@ -1,8 +1,10 @@
 package io.github.scholiarw.hfg.protocol.sftp;
 
 import io.github.scholiarw.hfg.contract.*;
+import io.github.scholiarw.hfg.traffic.ConcurrencyGate;
 import java.security.PublicKey;
 import java.time.Clock;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.sshd.common.config.keys.PublicKeyEntry;
 import org.apache.sshd.server.auth.password.PasswordAuthenticator;
 import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator;
@@ -15,6 +17,10 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
   private final UserSnapshotProvider users;
   private final CredentialVerifier credentials;
   private final Clock clock;
+  private final ConcurrentHashMap<java.util.UUID, ConnectionState> connections =
+      new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<ServerSession, ConcurrencyGate.Lease> sessions =
+      new ConcurrentHashMap<>();
 
   public HfgSftpAuthenticator(
       UserSnapshotProvider users, CredentialVerifier credentials, Clock clock) {
@@ -25,13 +31,14 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
 
   @Override
   public boolean authenticate(String username, String password, ServerSession session) {
-    boolean accepted =
+    UserSnapshot user =
         users
             .findByUsername(username)
             .filter(u -> u.canLoginAt(clock.instant()))
             .filter(
                 u -> u.passwordHash() != null && credentials.matches(password, u.passwordHash()))
-            .isPresent();
+            .orElse(null);
+    boolean accepted = user != null && admit(user, session);
     audit("password", username, session, accepted);
     return accepted;
   }
@@ -39,18 +46,45 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
   @Override
   public boolean authenticate(String username, PublicKey key, ServerSession session) {
     String presented = keyMaterial(PublicKeyEntry.toString(key));
-    boolean accepted =
+    UserSnapshot user =
         users
             .findByUsername(username)
             .filter(u -> u.canLoginAt(clock.instant()))
-            .map(
+            .filter(
                 u ->
                     u.sshPublicKeys().stream()
                         .map(HfgSftpAuthenticator::keyMaterial)
                         .anyMatch(presented::equals))
-            .orElse(false);
+            .orElse(null);
+    boolean accepted = user != null && admit(user, session);
     audit("publickey", username, session, accepted);
     return accepted;
+  }
+
+  void sessionClosed(ServerSession session) {
+    ConcurrencyGate.Lease lease = sessions.remove(session);
+    if (lease != null) lease.close();
+  }
+
+  private boolean admit(UserSnapshot user, ServerSession session) {
+    if (session == null || sessions.containsKey(session)) return true;
+    ConnectionState state =
+        connections.compute(
+            user.id(),
+            (ignored, current) ->
+                current != null && current.maximum == user.trafficPolicy().maxConnections()
+                    ? current
+                    : new ConnectionState(
+                        user.trafficPolicy().maxConnections(),
+                        new ConcurrencyGate(user.trafficPolicy().maxConnections())));
+    try {
+      ConcurrencyGate.Lease lease = state.gate.acquire();
+      ConcurrencyGate.Lease raced = sessions.putIfAbsent(session, lease);
+      if (raced != null) lease.close();
+      return true;
+    } catch (HfgException limit) {
+      return false;
+    }
   }
 
   /** One line per authentication attempt; MINA's own session logging stays at WARN. */
@@ -73,4 +107,6 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
     String[] parts = line.trim().split("\\s+");
     return parts.length < 2 ? "" : parts[0] + " " + parts[1];
   }
+
+  private record ConnectionState(int maximum, ConcurrencyGate gate) {}
 }

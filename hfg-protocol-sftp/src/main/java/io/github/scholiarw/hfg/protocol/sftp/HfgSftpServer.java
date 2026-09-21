@@ -8,6 +8,8 @@ import java.security.KeyPair;
 import java.util.Iterator;
 import java.util.List;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
+import org.apache.sshd.common.session.Session;
+import org.apache.sshd.common.session.SessionListener;
 import org.apache.sshd.common.util.io.resource.PathResource;
 import org.apache.sshd.common.util.security.SecurityUtils;
 import org.apache.sshd.server.SshServer;
@@ -30,6 +32,14 @@ public final class HfgSftpServer implements AutoCloseable {
     server.setKeyPairProvider(hostKeyProvider);
     server.setPasswordAuthenticator(authenticator);
     server.setPublickeyAuthenticator(authenticator);
+    server.addSessionListener(
+        new SessionListener() {
+          @Override
+          public void sessionClosed(Session session) {
+            if (session instanceof org.apache.sshd.server.session.ServerSession serverSession)
+              authenticator.sessionClosed(serverSession);
+          }
+        });
     server.setFileSystemFactory(new VirtualFileSystemFactory(Path.of("/")));
     server.setSubsystemFactories(List.of(new HfgSftpSubsystemFactory(files)));
     server.setShellFactory(null);
