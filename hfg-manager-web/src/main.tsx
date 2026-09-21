@@ -1,2 +1,2 @@
-import React from 'react';import{createRoot}from'react-dom/client';import{HashRouter}from'react-router-dom';import'../node_modules/@douyinfe/semi-ui/dist/css/semi.min.css';import'./styles.css';import{App}from'./App';import{installSemiReact19}from'./semiReact19';
+import React from 'react';import{createRoot}from'react-dom/client';import{HashRouter}from'react-router-dom';import'../node_modules/@douyinfe/semi-ui/dist/css/semi.min.css';import'./styles.css';import'./layout.css';import{App}from'./App';import{installSemiReact19}from'./semiReact19';
 installSemiReact19(createRoot);createRoot(document.getElementById('root')!).render(<React.StrictMode><HashRouter><App/></HashRouter></React.StrictMode>);

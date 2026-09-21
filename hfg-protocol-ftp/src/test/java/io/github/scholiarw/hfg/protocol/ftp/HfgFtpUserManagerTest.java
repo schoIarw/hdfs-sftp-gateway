@@ -43,9 +43,7 @@ class HfgFtpUserManagerTest {
             .getName());
     assertThrows(
         AuthenticationFailedException.class,
-        () ->
-            manager.authenticate(
-                new UsernamePasswordAuthentication("second", "first-password")));
+        () -> manager.authenticate(new UsernamePasswordAuthentication("second", "first-password")));
   }
 
   private static UserSnapshot user(String username, String passwordHash) {

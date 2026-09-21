@@ -79,6 +79,39 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
               .asRuntimeException());
       return;
     }
+    // 证书共用保护：同一个 Gateway 标识 + 同一张证书，不允许同时由两台主机上报。
+    // 只比较主机名：换网卡/IP、DHCP 续租都属正常，而两台机器共用一个标识必然是不同的主机名。
+    // 旧节点已离线（心跳超时）时允许接管，覆盖换机、重建节点的正常场景。
+    String fingerprint = GatewayIdentityInterceptor.CERTIFICATE_FINGERPRINT.get();
+    if (fingerprint != null && !fingerprint.isBlank()) {
+      long sharedCertificate =
+          db.sql(
+                  "select count(*) from gateway_node where id=:id and service_group_id=:g"
+                      + " and certificate_fingerprint=:fp and last_heartbeat_at>:cutoff"
+                      + " and hostname<>:hostname")
+              .param("id", r.getGatewayId())
+              .param("g", r.getServiceGroupId())
+              .param("fp", fingerprint)
+              .param("cutoff", java.sql.Timestamp.from(GatewayPresence.cutoff()))
+              .param("hostname", r.getHostname())
+              .query(Long.class)
+              .single();
+      if (sharedCertificate > 0) {
+        observer.onError(
+            Status.PERMISSION_DENIED
+                .withDescription(
+                    "Gateway '"
+                        + r.getGatewayId()
+                        + "' 正在由另一台主机上报（本次来自 "
+                        + r.getHostname()
+                        + " / "
+                        + r.getIpAddress()
+                        + "）。同一张 Gateway 证书不允许被多个节点共用：请为该节点单独签发证书；"
+                        + "若确实是替换主机，请先停止旧节点，等待其心跳超时后再启动。")
+                .asRuntimeException());
+        return;
+      }
+    }
     Instant n = Instant.now();
     db.sql(
             dialect.choose(
@@ -99,6 +132,14 @@ class ControlPlaneGrpcService extends HfgControlPlaneGrpc.HfgControlPlaneImplBas
         .param("error", r.getLastError())
         .param("n", java.sql.Timestamp.from(n))
         .update();
+    // 记录该节点本次实际上报的证书指纹，用于证书清单的“在用”判断和共用检测。
+    if (fingerprint != null && !fingerprint.isBlank())
+      db.sql(
+              "update gateway_node set certificate_fingerprint=:fp where id=:id and service_group_id=:g")
+          .param("fp", fingerprint)
+          .param("id", r.getGatewayId())
+          .param("g", r.getServiceGroupId())
+          .update();
     long latest =
         db.sql(
                 "select coalesce(max(version),0) from config_snapshot where service_group_id=:g and status='PUBLISHED'")

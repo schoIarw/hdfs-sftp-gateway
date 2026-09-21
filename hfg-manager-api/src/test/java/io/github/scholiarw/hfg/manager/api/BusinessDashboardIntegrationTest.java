@@ -41,11 +41,15 @@ class BusinessDashboardIntegrationTest {
         .extracting(row -> String.valueOf(row.get("username")))
         .containsExactlyInAnyOrder("metrics-first-" + suffix, "metrics-second-" + suffix);
 
-    var selected = dashboard.userHistory(now.minusSeconds(60), now.plusSeconds(1), "minute", second);
-    assertThat(selected).extracting(row -> String.valueOf(row.get("username"))).containsOnly("metrics-second-" + suffix);
+    var selected =
+        dashboard.userHistory(now.minusSeconds(60), now.plusSeconds(1), "minute", second);
+    assertThat(selected)
+        .extracting(row -> String.valueOf(row.get("username")))
+        .containsOnly("metrics-second-" + suffix);
 
     var overall = dashboard.allHistory(now.minusSeconds(60), now.plusSeconds(1), "minute");
-    assertThat(overall).allSatisfy(row -> assertThat(row).doesNotContainKeys("user_id", "username"));
+    assertThat(overall)
+        .allSatisfy(row -> assertThat(row).doesNotContainKeys("user_id", "username"));
   }
 
   private void transfer(UUID user, String username, long bytes, Instant completed) {
@@ -81,12 +85,7 @@ class BusinessDashboardIntegrationTest {
   }
 
   private void insertClusterAndUsers(
-      String cluster,
-      String group,
-      String suffix,
-      UUID first,
-      UUID second,
-      Instant now) {
+      String cluster, String group, String suffix, UUID first, UUID second, Instant now) {
     db.sql(
             "insert into hdfs_cluster(id,name,default_fs,kerberos_enabled,status,created_at,updated_at) values(:id,:name,'hdfs://test',false,'ENABLED',:now,:now)")
         .param("id", cluster)

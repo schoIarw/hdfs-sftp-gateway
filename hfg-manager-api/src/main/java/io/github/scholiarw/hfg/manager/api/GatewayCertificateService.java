@@ -41,6 +41,7 @@ class GatewayCertificateService {
   // registered globally so that the rest of the manager keeps the platform providers.
   private static final BouncyCastleProvider BC_PROVIDER = new BouncyCastleProvider();
   private final JdbcClient db;
+  private final DatabaseDialect dialect;
   private final Path caCertificate;
   private final Path caPrivateKey;
   private final String caPrivateKeyPassword;
@@ -49,12 +50,14 @@ class GatewayCertificateService {
 
   GatewayCertificateService(
       JdbcClient db,
+      DatabaseDialect dialect,
       @Value("${hfg.rpc.ca-certificate:/etc/hfg/pki/ca.crt}") Path caCertificate,
       @Value("${hfg.rpc.ca-private-key:/etc/hfg/pki/ca.key}") Path caPrivateKey,
       @Value("${hfg.rpc.ca-private-key-password:}") String caPrivateKeyPassword,
       @Value("${hfg.snapshot.signing-public-key-base64:}") String snapshotPublicKey,
       @Value("${hfg.rpc.gateway-certificate-validity-days:365}") int validityDays) {
     this.db = db;
+    this.dialect = dialect;
     this.caCertificate = caCertificate;
     this.caPrivateKey = caPrivateKey;
     this.caPrivateKeyPassword = caPrivateKeyPassword == null ? "" : caPrivateKeyPassword;
@@ -141,10 +144,12 @@ class GatewayCertificateService {
     String fingerprint =
         HexFormat.of()
             .formatHex(MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
+    String certificatePem =
+        new String(pem("CERTIFICATE", certificate.getEncoded()), StandardCharsets.US_ASCII);
     db.sql(
             "insert into"
-                + " gateway_certificate(id,gateway_id,service_group_id,serial_number,fingerprint_sha256,not_before,not_after,status,created_by,created_at)"
-                + " values(:id,:gateway,:group,:serial,:fingerprint,:from,:until,'ACTIVE',:actor,:now)")
+                + " gateway_certificate(id,gateway_id,service_group_id,serial_number,fingerprint_sha256,not_before,not_after,status,created_by,created_at,certificate_pem)"
+                + " values(:id,:gateway,:group,:serial,:fingerprint,:from,:until,'ACTIVE',:actor,:now,:pem)")
         .param("id", UUID.randomUUID())
         .param("gateway", gatewayId)
         .param("group", serviceGroupId)
@@ -154,6 +159,7 @@ class GatewayCertificateService {
         .param("until", java.sql.Timestamp.from(until))
         .param("actor", actor)
         .param("now", java.sql.Timestamp.from(Instant.now()))
+        .param("pem", certificatePem)
         .update();
     return new Generated(
         zip(
@@ -165,6 +171,142 @@ class GatewayCertificateService {
             pem("CERTIFICATE", ca.getEncoded())),
         fingerprint,
         until);
+  }
+
+  /**
+   * 证书清单：列出已签发证书，并标注当前是否有 Gateway 节点正在使用。
+   *
+   * <p>“在用”需要同时满足：证书状态为 ACTIVE、仍在有效期内、绑定节点心跳未超时，并且该节点实际上报的
+   * 证书指纹与本条记录一致。换发证书后旧证书会立刻显示为未使用，即使节点还挂在同一标识上。
+   */
+  List<Map<String, Object>> inventory() {
+    List<Map<String, Object>> rows =
+        new ArrayList<>(
+            db.sql(
+                    "select c.id,c.gateway_id,c.service_group_id,c.serial_number,c.fingerprint_sha256,"
+                        + "c.not_before,c.not_after,c.status as certificate_status,c.created_by,c.created_at,"
+                        + "n.hostname as node_hostname,n.ip_address as node_ip,n.status as node_status,"
+                        + "n.last_heartbeat_at as node_last_heartbeat,"
+                        + "case when n.id is null then 0 else 1 end as node_present,"
+                        + "case when n.certificate_fingerprint=c.fingerprint_sha256 then 1 else 0 end as fingerprint_matches,"
+                        + "case when n.last_heartbeat_at is not null and n.last_heartbeat_at>:cutoff then 1 else 0 end as node_online,"
+                        + "case when c.not_after<=:now then 1 else 0 end as expired,"
+                        + "case when c.certificate_pem is null then 0 else 1 end as stored"
+                        + " from gateway_certificate c"
+                        + " left join gateway_node n on n.id=c.gateway_id and n.service_group_id=c.service_group_id"
+                        + " order by c.gateway_id,c.created_at desc")
+                .param("cutoff", java.sql.Timestamp.from(GatewayPresence.cutoff()))
+                .param("now", java.sql.Timestamp.from(Instant.now()))
+                .query()
+                .listOfRows());
+    for (Map<String, Object> row : rows) {
+      boolean active = "ACTIVE".equals(String.valueOf(row.get("certificate_status")));
+      boolean expired = flag(row.get("expired"));
+      boolean online = flag(row.get("node_online"));
+      boolean matches = flag(row.get("fingerprint_matches"));
+      row.put("expired", expired);
+      row.put("node_online", online);
+      row.put("fingerprint_matches_node", matches);
+      row.put("in_use", active && !expired && online && matches);
+      row.put("downloadable", flag(row.get("stored")));
+    }
+    return rows;
+  }
+
+  record Download(String gatewayId, String serviceGroupId, String fingerprint, byte[] zip) {}
+
+  /**
+   * 下载已签发证书的归档（gateway.crt + ca.crt + 说明）。
+   *
+   * <p>私钥只在生成时随 ZIP 下发一次，Manager 不保存私钥，因此这里无法重新下载完整凭据；需要完整凭据时 应重新生成证书。
+   */
+  Download download(UUID certificateId) throws IOException {
+    Map<String, Object> row =
+        db
+            .sql(
+                "select gateway_id,service_group_id,fingerprint_sha256,certificate_pem"
+                    + " from gateway_certificate where id=:id")
+            .param("id", dialect.id(certificateId))
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .orElseThrow(() -> new NoSuchElementException("证书不存在或已被清理"));
+    String gatewayId = String.valueOf(row.get("gateway_id"));
+    String serviceGroupId = String.valueOf(row.get("service_group_id"));
+    String fingerprint = String.valueOf(row.get("fingerprint_sha256"));
+    Object stored = row.get("certificate_pem");
+    if (stored == null || String.valueOf(stored).isBlank())
+      throw new HfgException(
+          HfgErrorCode.CONFIG_INVALID, "该证书由旧版本签发，未保存证书正文；请在“Gateway 证书”中重新生成后再下载");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (ZipOutputStream zip = new ZipOutputStream(bytes, StandardCharsets.UTF_8)) {
+      entry(zip, "gateway.crt", String.valueOf(stored).getBytes(StandardCharsets.US_ASCII));
+      entry(zip, "ca.crt", Files.readAllBytes(caCertificate));
+      entry(
+          zip,
+          "README.txt",
+          ("Gateway: "
+                  + gatewayId
+                  + "\nService group: "
+                  + serviceGroupId
+                  + "\nFingerprint: "
+                  + fingerprint
+                  + "\n\n本归档只包含已签发的证书正文与 CA 证书，不含私钥：私钥仅在生成证书时下发一次，Manager 不保存。"
+                  + "\n如需完整凭据（含私钥）请重新生成证书；安装时把 gateway.crt 覆盖到 /etc/hfg/pki/gateway.crt 并重启 Gateway。\n")
+              .getBytes(StandardCharsets.UTF_8));
+    }
+    return new Download(gatewayId, serviceGroupId, fingerprint, bytes.toByteArray());
+  }
+
+  private static boolean flag(Object value) {
+    if (value instanceof Number number) return number.intValue() != 0;
+    return Boolean.TRUE.equals(value);
+  }
+
+  /**
+   * 删除一张证书记录。
+   *
+   * <p>正在使用的证书（有效期内、绑定节点在线、且节点实际上报的指纹就是这张）不允许删除，避免把运行中的 Gateway 直接锁死在控制面之外；已换发、已过期或节点长期离线的证书可以清理。
+   */
+  void delete(UUID certificateId) {
+    Map<String, Object> row =
+        db
+            .sql(
+                "select gateway_id,service_group_id,fingerprint_sha256 from gateway_certificate"
+                    + " where id=:id")
+            .param("id", dialect.id(certificateId))
+            .query()
+            .listOfRows()
+            .stream()
+            .findFirst()
+            .orElseThrow(() -> new NoSuchElementException("证书不存在或已被删除"));
+    long inUse =
+        db.sql(
+                "select count(*) from gateway_certificate c join gateway_node n"
+                    + " on n.id=c.gateway_id and n.service_group_id=c.service_group_id"
+                    + " where c.id=:id and c.status='ACTIVE' and c.not_after>:now"
+                    + " and n.certificate_fingerprint=c.fingerprint_sha256 and n.last_heartbeat_at>:cutoff")
+            .param("id", dialect.id(certificateId))
+            .param("now", java.sql.Timestamp.from(Instant.now()))
+            .param("cutoff", java.sql.Timestamp.from(GatewayPresence.cutoff()))
+            .query(Long.class)
+            .single();
+    if (inUse > 0)
+      throw new IllegalStateException(
+          "证书 “"
+              + row.get("gateway_id")
+              + "”（"
+              + row.get("service_group_id")
+              + "）正在被 Gateway 使用，不能删除；请先停止该节点，或先换发新证书并在节点上生效后再删除。");
+    db.sql("delete from gateway_certificate where id=:id")
+        .param("id", dialect.id(certificateId))
+        .update();
+    log.info(
+        "Deleted gateway certificate {} for gateway {} in service group {}",
+        certificateId,
+        row.get("gateway_id"),
+        row.get("service_group_id"));
   }
 
   private X509Certificate loadIssuerCertificate() throws Exception {

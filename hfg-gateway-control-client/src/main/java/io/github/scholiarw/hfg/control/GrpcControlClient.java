@@ -226,5 +226,4 @@ public final class GrpcControlClient implements AutoCloseable {
       Supplier<String> lastError) {}
 
   public record HdfsBundle(byte[] zip, String sha256) {}
-
 }

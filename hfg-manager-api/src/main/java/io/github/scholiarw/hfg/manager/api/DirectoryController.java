@@ -41,8 +41,7 @@ class DirectoryController {
 
   @GetMapping
   List<Map<String, Object>> list(
-      @RequestParam(defaultValue = "") String query,
-      @RequestParam(required = false) UUID userId) {
+      @RequestParam(defaultValue = "") String query, @RequestParam(required = false) UUID userId) {
     String normalized = query == null ? "" : query.trim().toLowerCase();
     StringBuilder sql =
         new StringBuilder(
@@ -86,8 +85,7 @@ class DirectoryController {
 
   @PutMapping("/{id}")
   @Transactional
-  Map<String, Object> update(
-      @PathVariable UUID id, @Valid @RequestBody DirectoryRequest request) {
+  Map<String, Object> update(@PathVariable UUID id, @Valid @RequestBody DirectoryRequest request) {
     requireDirectory(id);
     ClusterBindingGuard.requireUserCluster(db, dialect, request.userId(), request.hdfsClusterId());
     int changed =
@@ -119,7 +117,8 @@ class DirectoryController {
 
   @GetMapping("/{id}")
   Map<String, Object> get(@PathVariable UUID id) {
-    return db.sql(
+    return db
+        .sql(
             "select d.*,u.username owner_username from directory_mapping d left join ftp_user u on u.id=d.owner_user_id where d.id=:id")
         .param("id", dialect.id(id))
         .query()
@@ -134,9 +133,7 @@ class DirectoryController {
   @Transactional
   void delete(@PathVariable UUID id) {
     requireDirectory(id);
-    db.sql("delete from directory_mapping where id=:id")
-        .param("id", dialect.id(id))
-        .update();
+    db.sql("delete from directory_mapping where id=:id").param("id", dialect.id(id)).update();
   }
 
   private void requireDirectory(UUID id) {

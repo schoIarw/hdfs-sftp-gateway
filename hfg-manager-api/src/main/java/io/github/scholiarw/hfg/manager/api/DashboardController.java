@@ -12,10 +12,7 @@ class DashboardController {
   private final LogsStore logs;
   private final DirectoryUsageService directoryUsage;
 
-  DashboardController(
-      JdbcClient management,
-      LogsStore logs,
-      DirectoryUsageService directoryUsage) {
+  DashboardController(JdbcClient management, LogsStore logs, DirectoryUsageService directoryUsage) {
     this.management = management;
     this.logs = logs;
     this.directoryUsage = directoryUsage;
@@ -83,8 +80,7 @@ class DashboardController {
 
   /**
    * Business metrics grouped by user. With no user filter every user remains a separate series;
-   * this is intentionally different from the overall history endpoint, which has no user
-   * dimension.
+   * this is intentionally different from the overall history endpoint, which has no user dimension.
    */
   @GetMapping("/user-history")
   List<Map<String, Object>> userHistory(

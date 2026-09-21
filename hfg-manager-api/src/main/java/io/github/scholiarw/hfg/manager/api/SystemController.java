@@ -64,7 +64,7 @@ class SystemController {
 
   @PostMapping("/service-groups")
   @ResponseStatus(HttpStatus.CREATED)
-  void createGroup(@Valid @RequestBody ServiceGroup r) {
+  Map<String, Object> createGroup(@Valid @RequestBody ServiceGroup r) {
     Integer clusters =
         db.sql("select count(*) from hdfs_cluster where id=:id")
             .param("id", r.hdfsClusterId())
@@ -81,6 +81,14 @@ class SystemController {
         .param("hdfs", r.hdfsClusterId())
         .param("n", java.sql.Timestamp.from(n))
         .update();
+    return db
+        .sql("select * from service_group where id=:id")
+        .param("id", r.id())
+        .query()
+        .listOfRows()
+        .stream()
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("服务组已创建但无法读取：" + r.id()));
   }
 
   @DeleteMapping("/service-groups/{id}")
@@ -89,22 +97,24 @@ class SystemController {
   void deleteGroup(@PathVariable String id) {
     Map<String, Object> group =
         db
-            .sql("select hdfs_cluster_id from service_group where id=:id")
+            .sql("select id from service_group where id=:id")
             .param("id", id)
             .query()
             .listOfRows()
             .stream()
             .findFirst()
             .orElseThrow(() -> new NoSuchElementException("服务组 “" + id + "” 不存在"));
-    String cluster = String.valueOf(group.get("hdfs_cluster_id"));
     List<String> users =
         db.sql("select username from ftp_user where service_group_id=:id order by username")
             .param("id", id)
             .query(String.class)
             .list();
+    // 只看这个服务组自己的用户所拥有的目录；同一 HDFS 连接上其它服务组的目录与本组无关。
     List<String> directories =
-        db.sql("select name from directory_mapping where hdfs_cluster_id=:cluster order by name")
-            .param("cluster", cluster)
+        db.sql(
+                "select d.name from directory_mapping d join ftp_user u on u.id=d.owner_user_id"
+                    + " where u.service_group_id=:id order by d.name")
+            .param("id", id)
             .query(String.class)
             .list();
     List<String> online =
@@ -115,7 +125,7 @@ class SystemController {
             .query(String.class)
             .list();
     if (!users.isEmpty() || !directories.isEmpty() || !online.isEmpty())
-      throw new IllegalStateException(blockedGroupMessage(id, cluster, users, directories, online));
+      throw new IllegalStateException(blockedGroupMessage(id, users, directories, online));
 
     // Offline or failed gateways, their certificates and published snapshots belong to this group
     // and cannot authenticate anywhere else, so they are removed with it.
@@ -138,21 +148,12 @@ class SystemController {
   }
 
   private static String blockedGroupMessage(
-      String id,
-      String cluster,
-      List<String> users,
-      List<String> directories,
-      List<String> online) {
+      String id, List<String> users, List<String> directories, List<String> online) {
     List<String> reasons = new ArrayList<>();
     if (!users.isEmpty())
       reasons.add("用户 " + String.join("、", users) + "（共 " + users.size() + " 个）");
     if (!directories.isEmpty())
-      reasons.add(
-          "目录映射 "
-              + String.join("、", directories)
-              + "（绑定 HDFS 连接 "
-              + cluster
-              + "，请在“目录管理”中先删除或转移归属目录）");
+      reasons.add("该组用户归属的目录映射 " + String.join("、", directories) + "（请在“目录管理”中先删除或转移这些目录）");
     if (!online.isEmpty()) reasons.add("在线 Gateway 节点 " + String.join("、", online) + "（请先停止这些网关）");
     return "服务组 “"
         + id
@@ -181,6 +182,29 @@ class SystemController {
         .header("X-HFG-Certificate-Fingerprint", generated.fingerprint())
         .header("X-HFG-Certificate-Expires", generated.notAfter().toString())
         .body(generated.zip());
+  }
+
+  @GetMapping("/gateway-certificates")
+  List<Map<String, Object>> gatewayCertificates() {
+    return certificates.inventory();
+  }
+
+  @GetMapping(value = "/gateway-certificates/{id}/download", produces = "application/zip")
+  ResponseEntity<byte[]> downloadGatewayCertificate(@PathVariable UUID id) throws Exception {
+    var archive = certificates.download(id);
+    return ResponseEntity.ok()
+        .contentType(org.springframework.http.MediaType.parseMediaType("application/zip"))
+        .header(
+            org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+            "attachment; filename=\"" + archive.gatewayId() + "-certificate.zip\"")
+        .header("X-HFG-Certificate-Fingerprint", archive.fingerprint())
+        .body(archive.zip());
+  }
+
+  @DeleteMapping("/gateway-certificates/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void deleteGatewayCertificate(@PathVariable UUID id) {
+    certificates.delete(id);
   }
 
   @PutMapping("/gateways/{id}/heartbeat")

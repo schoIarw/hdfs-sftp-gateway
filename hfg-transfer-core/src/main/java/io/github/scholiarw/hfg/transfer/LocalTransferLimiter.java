@@ -8,7 +8,9 @@ import io.github.scholiarw.hfg.traffic.TokenBucket;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Applies per-user upload and download rate limits; connection limits live at protocol sessions. */
+/**
+ * Applies per-user upload and download rate limits; connection limits live at protocol sessions.
+ */
 public final class LocalTransferLimiter implements TransferLimiter {
   private final ConcurrentHashMap<UUID, State> states = new ConcurrentHashMap<>();
 
@@ -42,14 +44,12 @@ public final class LocalTransferLimiter implements TransferLimiter {
 
   private static State create(TrafficPolicy policy) {
     return new State(
-        new TokenBucket(policy.uploadBytesPerSecond(), policy.uploadBytesPerSecond(), NanoClock.system()),
+        new TokenBucket(
+            policy.uploadBytesPerSecond(), policy.uploadBytesPerSecond(), NanoClock.system()),
         new TokenBucket(
             policy.downloadBytesPerSecond(), policy.downloadBytesPerSecond(), NanoClock.system()),
         policy);
   }
 
-  private record State(
-      TokenBucket uploadRate,
-      TokenBucket downloadRate,
-      TrafficPolicy policy) {}
+  private record State(TokenBucket uploadRate, TokenBucket downloadRate, TrafficPolicy policy) {}
 }

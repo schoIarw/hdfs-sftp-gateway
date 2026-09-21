@@ -43,7 +43,9 @@ final class ClusterBindingGuard {
             .listOfRows();
     if (!mismatches.isEmpty()) {
       String names =
-          mismatches.stream().map(row -> String.valueOf(row.get("name"))).collect(java.util.stream.Collectors.joining("、"));
+          mismatches.stream()
+              .map(row -> String.valueOf(row.get("name")))
+              .collect(java.util.stream.Collectors.joining("、"));
       throw new IllegalStateException(
           "用户归属目录（" + names + "）不属于目标服务组的 HDFS 连接 " + targetCluster + "；请先转移或删除这些目录");
     }

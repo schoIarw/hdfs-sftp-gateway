@@ -2,7 +2,7 @@ import {createContext,useContext,useEffect,useState} from 'react';
 import {Navigate,Route,Routes,useLocation,useNavigate} from 'react-router-dom';
 import {Avatar,Button,Layout,Nav,Typography} from '@douyinfe/semi-ui';
 import {IconActivity,IconAlarm,IconBriefcase,IconFolder,IconHistogram,IconHome,IconSetting,IconUser} from '@douyinfe/semi-icons';
-import {api,authenticate,clearCredentials,hasCredentials} from './api';
+import {api,authenticate,clearCredentials,hasCredentials,onUnauthorized} from './api';
 import {Dashboard,Directories,Monitoring,SystemManagement,Traffic,Users} from './managementPages';
 
 const {Header,Sider,Content}=Layout;
@@ -34,6 +34,8 @@ function Shell(){
 
 export function App(){
  const[authenticated,setAuthenticated]=useState(hasCredentials),[username,setUsername]=useState('');
+ // 任何接口返回 401（会话过期、密码变更、服务端重启）都回到登录页，不触发浏览器原生登录框。
+ useEffect(()=>onUnauthorized(()=>{setUsername('');setAuthenticated(false)}),[]);
  const auth:AuthContextValue={authenticated,username,login:async(user,password)=>{const admin=await authenticate(user,password);setUsername(admin.username);setAuthenticated(true)},logout:()=>{clearCredentials();setUsername('');setAuthenticated(false)}};
  return <AuthContext.Provider value={auth}><Routes><Route path="/login" element={authenticated?<Navigate to="/" replace/>:<Login/>}/><Route path="/*" element={authenticated?<Shell/>:<Navigate to="/login" replace/>}/></Routes></AuthContext.Provider>;
 }

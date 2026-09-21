@@ -1,15 +1,19 @@
 import {useEffect,useMemo,useState} from 'react';
-import {Button,Card,Form,Input,Modal,Progress,Select,Space,Switch,Table,Tag,Toast,Typography} from '@douyinfe/semi-ui';
+import {Button,Card,Form,Input,Modal,Progress,Select as SemiSelect,Space,Switch,Table,Tag,Toast,Typography} from '@douyinfe/semi-ui';
 import {IconDelete,IconEdit,IconKey,IconPlus,IconRefresh,IconSearch} from '@douyinfe/semi-icons';
 import {VChart} from '@visactor/react-vchart';
 import {api,formatBytes,User,users} from './api';
-import {Monitoring,SystemPage} from './systemPages';
+import {Header,Monitoring,SystemPage} from './systemPages';
 
 const {Title,Text}=Typography;
 type Row=Record<string,unknown>;
 
-function Header({title,description,actions}:{title:string;description:string;actions?:React.ReactNode}){
- return <div className="page-header"><div><Title heading={4}>{title}</Title><Text type="tertiary">{description}</Text></div><Space wrap>{actions}</Space></div>;
+/**
+ * 页面级下拉筛选：弹层比选择框略宽 24px，并随选项文案自动加宽，避免选项被截断或挤压。
+ */
+function Select({style,dropdownStyle,dropdownMatchSelectWidth,...rest}:React.ComponentProps<typeof SemiSelect>){
+ const width=Number(style?.width)||0;
+ return <SemiSelect {...rest} style={style} dropdownMatchSelectWidth={dropdownMatchSelectWidth??false} dropdownStyle={{...(width?{minWidth:width+24}:{}),...dropdownStyle}}/>;
 }
 function Stat({label,value,note,good}:{label:string;value:string;note:string;good?:boolean}){
  return <Card className="stat"><Text type="tertiary">{label}</Text><strong>{value}</strong><span className={good?'good':''}>{note}</span></Card>;

@@ -124,8 +124,7 @@ class HdfsBundleService {
             .param("id", id)
             .query(String.class)
             .list(),
-        db.sql(
-                "select d.name from directory_mapping d where d.hdfs_cluster_id=:id order by d.name")
+        db.sql("select d.name from directory_mapping d where d.hdfs_cluster_id=:id order by d.name")
             .param("id", id)
             .query(String.class)
             .list());

@@ -25,9 +25,9 @@ make package
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-manager-api/target/hfg-manager-api-0.1.9.jar` | Manager、REST API 与管理页面合并包 |
-| `hfg-gateway-app/target/hfg-gateway-app-0.1.9.jar` | FTP/SFTP Gateway |
-| `hfg-common-contract/target/hfg-common-contract-0.1.9-bootstrap.jar` | 一键生成 CA、Manager 证书和快照密钥 |
+| `hfg-manager-api/target/hfg-manager-api-0.1.10.jar` | Manager、REST API 与管理页面合并包 |
+| `hfg-gateway-app/target/hfg-gateway-app-0.1.10.jar` | FTP/SFTP Gateway |
+| `hfg-common-contract/target/hfg-common-contract-0.1.10-bootstrap.jar` | 一键生成 CA、Manager 证书和快照密钥 |
 | `target/bom.json` | CycloneDX 软件物料清单 |
 
 验证页面确实进入 Manager JAR：
@@ -240,7 +240,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 ### 3. 构建并运行 Gateway 镜像
 
 ```bash
-docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.9 .
+docker build -f deploy/docker/Dockerfile.gateway -t hfg-gateway:0.1.10 .
 ```
 
 FTP PASV 与宿主机 VIP 涉及多端口和返回地址，Linux 生产节点推荐 host 网络。示例：
@@ -253,7 +253,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
-  hfg-gateway:0.1.9
+  hfg-gateway:0.1.10
 ```
 
 镜像内使用 UID 10001。宿主机的 `/var/lib/hfg` 必须允许 UID 10001 写入，证书和 SSH host key 必须允许 UID 10001 读取。HDFS 配置包会自动写入该数据目录。绑定 21/22 时若容器运行时默认移除了低位端口能力，增加 `--cap-add NET_BIND_SERVICE`。
