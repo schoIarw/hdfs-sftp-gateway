@@ -54,6 +54,45 @@ class TransferServiceTest {
   }
 
   @Test
+  void listsVirtualMountsAndLetsRealDirectoriesWin() throws Exception {
+    storage.dirs.add("/tenant/user_01/a");
+    storage.dirs.add("/tenant/user_01/b");
+    storage.dirs.add("/landing/tablea");
+    var user =
+        new UserSnapshot(
+            UUID.randomUUID(),
+            "user_01",
+            "hash",
+            Set.of(),
+            "d",
+            "b",
+            "g",
+            AccountStatus.ENABLED,
+            null,
+            List.of(
+                new DirectoryGrant("/", "/tenant/user_01", AccessMode.READ_WRITE, -1, -1),
+                new DirectoryGrant("/c", "/landing/tablea", AccessMode.READ_ONLY, -1, -1)),
+            TrafficPolicy.unlimited());
+    var session = new TransferContext(user, Protocol.FTP, "/", "gw", null, "c");
+
+    // 真实目录 a、b 与虚拟挂载点 c 一起出现在根目录，虚拟目录带 (v) 标注
+    assertEquals(
+        List.of("a", "b", "c (v)"),
+        service.list(session, "/", null, 1000).stream().map(StorageEntry::name).toList());
+    // 客户端把带标注的名字回传时仍能进入虚拟目录
+    assertEquals("/landing/tablea", service.stat(session, "/c (v)").path());
+    assertEquals("/landing/tablea", service.stat(session, "/c").path());
+
+    // 真实目录出现同名条目后，虚拟挂载点失效：列表只剩真实目录，路径也落到真实目录上
+    storage.dirs.add("/tenant/user_01/c");
+    assertEquals(
+        List.of("a", "b", "c"),
+        service.list(session, "/", null, 1000).stream().map(StorageEntry::name).toList());
+    assertEquals("/tenant/user_01/c", service.stat(session, "/c (v)").path());
+    assertEquals("/tenant/user_01/c", service.stat(session, "/c").path());
+  }
+
+  @Test
   void resumesOnlyAtStagedEof() throws Exception {
     UUID id = UUID.randomUUID();
     try (var first = service.openUpload(context, "/resume.bin", id, 0, true)) {

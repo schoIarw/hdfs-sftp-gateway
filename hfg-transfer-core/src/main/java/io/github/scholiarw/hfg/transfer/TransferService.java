@@ -8,8 +8,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.DirectoryNotEmptyException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,18 +42,22 @@ public final class TransferService {
 
   public List<StorageEntry> list(TransferContext context, String path, String token, int pageSize)
       throws IOException {
-    var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
     var storage = storage(context);
+    var resolved = requireRead(context, path, storage);
     {
-      return storage.list(resolved.storagePath(), token, pageSize).stream()
+      List<StorageEntry> entries = new ArrayList<>();
+      storage.list(resolved.storagePath(), token, pageSize).stream()
           .filter(entry -> !STAGING_DIRECTORY.equals(entry.name()))
-          .toList();
+          .forEach(entries::add);
+      entries.addAll(virtualMounts(context, resolved, entries, storage));
+      entries.sort(Comparator.comparing(entry -> entry.name().toLowerCase(Locale.ROOT)));
+      return List.copyOf(entries);
     }
   }
 
   public StorageEntry stat(TransferContext context, String path) throws IOException {
-    var resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
     var storage = storage(context);
+    var resolved = requireRead(context, path, storage);
     {
       return storage.stat(resolved.storagePath());
     }
@@ -57,14 +66,14 @@ public final class TransferService {
   public Download openDownload(TransferContext context, String path, long offset)
       throws IOException {
     if (offset < 0) throw new HfgException(HfgErrorCode.UNSUPPORTED_OFFSET, "Negative offset");
+    StorageClient storage = storage(context);
     PathResolver.ResolvedPath resolved;
     try {
-      resolved = policy.requireRead(context.user(), context.workingDirectory(), path);
+      resolved = requireRead(context, path, storage);
     } catch (RuntimeException e) {
       audit(context, "DOWNLOAD", path, 0, TransferStatus.FAILED, e.getMessage());
       throw e;
     }
-    StorageClient storage = storage(context);
     try {
       var handle = storage.openRead(resolved.storagePath(), offset);
       try {
@@ -93,14 +102,14 @@ public final class TransferService {
       TransferContext context, String path, UUID transferId, long offset, boolean overwrite)
       throws IOException {
     if (offset < 0) throw new HfgException(HfgErrorCode.UNSUPPORTED_OFFSET, "Negative offset");
+    StorageClient storage = storage(context);
     PathResolver.ResolvedPath resolved;
     try {
-      resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
+      resolved = requireWrite(context, path, storage);
     } catch (RuntimeException e) {
       audit(context, "UPLOAD", path, 0, TransferStatus.FAILED, e.getMessage());
       throw e;
     }
-    StorageClient storage = storage(context);
     String parent = parent(resolved.storagePath());
     String stagingDir = stagingPath(parent);
     String stagingPath = stagingDir + "/" + transferId + ".part";
@@ -142,16 +151,16 @@ public final class TransferService {
   }
 
   public void mkdirs(TransferContext context, String path) throws IOException {
-    var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
     var storage = storage(context);
+    var resolved = requireWrite(context, path, storage);
     {
       storage.mkdirs(resolved.storagePath());
     }
   }
 
   public void delete(TransferContext context, String path, boolean recursive) throws IOException {
-    var resolved = policy.requireWrite(context.user(), context.workingDirectory(), path);
     var storage = storage(context);
+    var resolved = requireWrite(context, path, storage);
     {
       IOException failure = null;
       boolean deleted;
@@ -188,9 +197,9 @@ public final class TransferService {
 
   public void rename(TransferContext context, String source, String target, boolean overwrite)
       throws IOException {
-    var from = policy.requireWrite(context.user(), context.workingDirectory(), source);
-    var to = policy.requireWrite(context.user(), context.workingDirectory(), target);
     var storage = storage(context);
+    var from = requireWrite(context, source, storage);
+    var to = requireWrite(context, target, storage);
     {
       if (storage.exists(to.storagePath())) {
         if (!overwrite) throw new HfgException(HfgErrorCode.ALREADY_EXISTS, "Target exists");
@@ -229,6 +238,71 @@ public final class TransferService {
 
   private static String stagingPath(String parent) {
     return parent + (parent.endsWith("/") ? "" : "/") + STAGING_DIRECTORY;
+  }
+
+  private PathResolver.ResolvedPath requireRead(
+      TransferContext context, String path, StorageClient storage) {
+    return policy.requireRead(
+        context.user(), context.workingDirectory(), path, storageProbe(storage));
+  }
+
+  private PathResolver.ResolvedPath requireWrite(
+      TransferContext context, String path, StorageClient storage) {
+    return policy.requireWrite(
+        context.user(), context.workingDirectory(), path, storageProbe(storage));
+  }
+
+  /** 真实路径是否存在：用于判断真实目录是否遮蔽了同名的虚拟挂载点。 */
+  private static Predicate<String> storageProbe(StorageClient storage) {
+    return candidate -> {
+      try {
+        return storage.exists(candidate);
+      } catch (IOException | RuntimeException e) {
+        return false;
+      }
+    };
+  }
+
+  /**
+   * 把用户挂在当前目录下的其它虚拟目录并入列表。
+   *
+   * <p>虚拟目录以“名字 (v)”标注，客户端把该名字原样回传时由 {@link PathResolver#stripVirtualMarker}
+   * 还原，因此进入目录、上传和下载都不受影响；如果真实目录里已经有同名条目，则真实条目优先，虚拟挂载点不再 出现在列表中（被遮蔽），该路径下的上传下载都落在真实目录上。
+   */
+  private List<StorageEntry> virtualMounts(
+      TransferContext context,
+      PathResolver.ResolvedPath current,
+      List<StorageEntry> realEntries,
+      StorageClient storage) {
+    var visible = new HashSet<String>();
+    for (StorageEntry entry : realEntries) visible.add(entry.name());
+    List<StorageEntry> mounts = new ArrayList<>();
+    for (DirectoryGrant grant : context.user().directories()) {
+      String mount = PathResolver.stripVirtualMarker(grant.virtualPath());
+      if (mount.endsWith("/")) mount = mount.substring(0, mount.length() - 1);
+      if (mount.isEmpty() || !parent(mount).equals(current.virtualPath())) continue;
+      String name = mount.substring(mount.lastIndexOf('/') + 1);
+      if (visible.contains(name)) continue;
+      mounts.add(
+          new StorageEntry(
+              mount,
+              name + PathResolver.VIRTUAL_MARKER,
+              true,
+              0L,
+              mountModifiedAt(context, mount, storage),
+              "hfg",
+              "hfg",
+              "r-x"));
+    }
+    return mounts;
+  }
+
+  private Instant mountModifiedAt(TransferContext context, String mount, StorageClient storage) {
+    try {
+      return storage.stat(requireRead(context, mount, storage).storagePath()).modifiedAt();
+    } catch (IOException | RuntimeException e) {
+      return Instant.EPOCH;
+    }
   }
 
   private StorageClient storage(TransferContext context) throws IOException {

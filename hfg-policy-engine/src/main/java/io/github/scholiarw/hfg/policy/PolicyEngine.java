@@ -4,6 +4,7 @@ import io.github.scholiarw.hfg.contract.AccessMode;
 import io.github.scholiarw.hfg.contract.HfgErrorCode;
 import io.github.scholiarw.hfg.contract.HfgException;
 import io.github.scholiarw.hfg.contract.UserSnapshot;
+import java.util.function.Predicate;
 
 public final class PolicyEngine {
   private final PathResolver resolver;
@@ -13,13 +14,24 @@ public final class PolicyEngine {
   }
 
   public PathResolver.ResolvedPath requireRead(UserSnapshot user, String cwd, String path) {
-    var resolved = resolver.resolve(user.directories(), cwd, path);
+    return requireRead(user, cwd, path, candidate -> false);
+  }
+
+  /** 解析并校验读权限；{@code storageExists} 用于判定同名真实目录是否遮蔽了虚拟挂载点。 */
+  public PathResolver.ResolvedPath requireRead(
+      UserSnapshot user, String cwd, String path, Predicate<String> storageExists) {
+    var resolved = resolver.resolve(user.directories(), cwd, path, storageExists);
     if (!resolved.grant().accessMode().canRead()) deny();
     return resolved;
   }
 
   public PathResolver.ResolvedPath requireWrite(UserSnapshot user, String cwd, String path) {
-    var resolved = resolver.resolve(user.directories(), cwd, path);
+    return requireWrite(user, cwd, path, candidate -> false);
+  }
+
+  public PathResolver.ResolvedPath requireWrite(
+      UserSnapshot user, String cwd, String path, Predicate<String> storageExists) {
+    var resolved = resolver.resolve(user.directories(), cwd, path, storageExists);
     if (resolved.grant().accessMode() != AccessMode.READ_WRITE) deny();
     return resolved;
   }

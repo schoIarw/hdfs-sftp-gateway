@@ -90,7 +90,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/workspace:ro" \
             -v "${RUNNER_TEMP}/hfg-centos7-bootstrap:/output" \
             quay.io/centos/centos:7 \
-            /opt/java/bin/java -jar /workspace/hfg-common-contract/target/hfg-common-contract-0.1.10-bootstrap.jar \
+            /opt/java/bin/java -jar /workspace/hfg-common-contract/target/hfg-common-contract-0.1.11-bootstrap.jar \
             --output /output --server-name manager.example.com --server-ip 10.0.10.10
           grep -q '^HFG_SNAPSHOT_PRIVATE_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-bootstrap/hfg-manager-bootstrap.env"
           grep -q '^HFG_SNAPSHOT_PUBLIC_KEY_BASE64=' "${RUNNER_TEMP}/hfg-centos7-bootstrap/hfg-gateway-bootstrap.env"
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     env:
-      HFG_RELEASE_VERSION: 0.1.10
+      HFG_RELEASE_VERSION: 0.1.11
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -169,5 +169,5 @@ jobs:
             "target/bom.json#bom.json" \
             --target "$GITHUB_SHA" \
             --title "HFG ${HFG_RELEASE_VERSION} Linux x86_64" \
-            --notes-file docs/release-notes-v0.1.10.md \
+            --notes-file docs/release-notes-v0.1.11.md \
             --latest
