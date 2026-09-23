@@ -29,10 +29,7 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
   }
 
   public HfgSftpAuthenticator(
-      UserSnapshotProvider users,
-      CredentialVerifier credentials,
-      Clock clock,
-      int maxSessions) {
+      UserSnapshotProvider users, CredentialVerifier credentials, Clock clock, int maxSessions) {
     this.users = users;
     this.credentials = credentials;
     this.clock = clock;
