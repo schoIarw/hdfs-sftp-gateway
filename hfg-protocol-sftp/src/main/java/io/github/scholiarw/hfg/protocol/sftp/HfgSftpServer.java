@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory;
@@ -12,6 +13,7 @@ import org.apache.sshd.common.session.Session;
 import org.apache.sshd.common.session.SessionListener;
 import org.apache.sshd.common.util.io.resource.PathResource;
 import org.apache.sshd.common.util.security.SecurityUtils;
+import org.apache.sshd.core.CoreModuleProperties;
 import org.apache.sshd.server.SshServer;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.slf4j.Logger;
@@ -20,6 +22,7 @@ import org.slf4j.LoggerFactory;
 public final class HfgSftpServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(HfgSftpServer.class);
   private final SshServer server;
+  private final HfgSftpSubsystemFactory subsystems;
 
   public HfgSftpServer(
       Settings settings, HfgSftpAuthenticator authenticator, HfgSftpFileSystemAccessor files) {
@@ -32,16 +35,26 @@ public final class HfgSftpServer implements AutoCloseable {
     server.setKeyPairProvider(hostKeyProvider);
     server.setPasswordAuthenticator(authenticator);
     server.setPublickeyAuthenticator(authenticator);
+    CoreModuleProperties.IDLE_TIMEOUT.set(
+        server, Duration.ofSeconds(settings.idleTimeoutSeconds()));
+    subsystems =
+        new HfgSftpSubsystemFactory(
+            files,
+            settings.maxChannels(),
+            settings.maxChannelsPerSession(),
+            settings.workerThreads());
     server.addSessionListener(
         new SessionListener() {
           @Override
           public void sessionClosed(Session session) {
-            if (session instanceof org.apache.sshd.server.session.ServerSession serverSession)
+            if (session instanceof org.apache.sshd.server.session.ServerSession serverSession) {
               authenticator.sessionClosed(serverSession);
+              subsystems.sessionClosed(serverSession);
+            }
           }
         });
     server.setFileSystemFactory(new VirtualFileSystemFactory(Path.of("/")));
-    server.setSubsystemFactories(List.of(new HfgSftpSubsystemFactory(files)));
+    server.setSubsystemFactories(List.of(subsystems));
     server.setShellFactory(null);
     server.setCommandFactory(null);
   }
@@ -78,8 +91,28 @@ public final class HfgSftpServer implements AutoCloseable {
 
   @Override
   public void close() throws IOException {
-    server.stop(true);
+    try {
+      server.stop(true);
+    } finally {
+      subsystems.close();
+    }
   }
 
-  public record Settings(String bindAddress, int port, Path hostKeyPath, String hostKeyAlgorithm) {}
+  public record Settings(
+      String bindAddress,
+      int port,
+      Path hostKeyPath,
+      String hostKeyAlgorithm,
+      int idleTimeoutSeconds,
+      int maxChannels,
+      int maxChannelsPerSession,
+      int workerThreads) {
+    public Settings {
+      if (idleTimeoutSeconds < 1
+          || maxChannels < 1
+          || maxChannelsPerSession < 1
+          || workerThreads < 1)
+        throw new IllegalArgumentException("SFTP concurrency settings must be positive");
+    }
+  }
 }

@@ -19,11 +19,24 @@ class HdfsStorageClientTest {
       try (var out = storage.create(dir + "/a.bin", false)) {
         out.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
       }
+      ByteBuffer direct = ByteBuffer.allocateDirect(3);
+      direct.put(new byte[] {4, 5, 6}).flip();
+      try (var out = storage.create(dir + "/direct.bin", false)) {
+        out.write(direct);
+      }
       assertEquals(3, storage.stat(dir + "/a.bin").length());
       try (var in = storage.openRead(dir + "/a.bin", 1)) {
         var target = ByteBuffer.allocate(2);
         assertEquals(2, in.read(target));
         assertArrayEquals(new byte[] {2, 3}, target.array());
+      }
+      try (var in = storage.openRead(dir + "/direct.bin", 0)) {
+        ByteBuffer target = ByteBuffer.allocateDirect(3);
+        assertEquals(3, in.read(target));
+        target.flip();
+        assertEquals(4, target.get());
+        assertEquals(5, target.get());
+        assertEquals(6, target.get());
       }
       assertEquals("a.bin", storage.list(dir, null, 10).get(0).name());
       assertThrows(UnsupportedOperationException.class, () -> storage.setQuota(dir, 10, 1024));

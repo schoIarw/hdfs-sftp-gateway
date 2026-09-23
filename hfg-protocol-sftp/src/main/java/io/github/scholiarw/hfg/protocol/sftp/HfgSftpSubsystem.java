@@ -1,5 +1,6 @@
 package io.github.scholiarw.hfg.protocol.sftp;
 
+import io.github.scholiarw.hfg.traffic.ConcurrencyGate;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -35,8 +36,23 @@ import org.apache.sshd.sftp.server.SftpSubsystemConfigurator;
  * such a check and lets the accessor (backed by {@code TransferService}) decide the outcome.
  */
 final class HfgSftpSubsystem extends SftpSubsystem {
-  HfgSftpSubsystem(ChannelSession channel, SftpSubsystemConfigurator configurator) {
+  private final ConcurrencyGate.Lease channelLease;
+
+  HfgSftpSubsystem(
+      ChannelSession channel,
+      SftpSubsystemConfigurator configurator,
+      ConcurrencyGate.Lease channelLease) {
     super(channel, configurator);
+    this.channelLease = Objects.requireNonNull(channelLease);
+  }
+
+  @Override
+  public void destroy(ChannelSession channel) {
+    try {
+      super.destroy(channel);
+    } finally {
+      channelLease.close();
+    }
   }
 
   @Override

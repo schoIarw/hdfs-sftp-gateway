@@ -17,6 +17,7 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
   private final UserSnapshotProvider users;
   private final CredentialVerifier credentials;
   private final Clock clock;
+  private final ConcurrencyGate globalConnections;
   private final ConcurrentHashMap<java.util.UUID, ConnectionState> connections =
       new ConcurrentHashMap<>();
   private final ConcurrentHashMap<ServerSession, ConcurrencyGate.Lease> sessions =
@@ -24,9 +25,18 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
 
   public HfgSftpAuthenticator(
       UserSnapshotProvider users, CredentialVerifier credentials, Clock clock) {
+    this(users, credentials, clock, 0);
+  }
+
+  public HfgSftpAuthenticator(
+      UserSnapshotProvider users,
+      CredentialVerifier credentials,
+      Clock clock,
+      int maxSessions) {
     this.users = users;
     this.credentials = credentials;
     this.clock = clock;
+    this.globalConnections = new ConcurrencyGate(maxSessions);
   }
 
   @Override
@@ -78,7 +88,19 @@ public final class HfgSftpAuthenticator implements PasswordAuthenticator, Public
                         user.trafficPolicy().maxConnections(),
                         new ConcurrencyGate(user.trafficPolicy().maxConnections())));
     try {
-      ConcurrencyGate.Lease lease = state.gate.acquire();
+      ConcurrencyGate.Lease globalLease = globalConnections.acquire();
+      ConcurrencyGate.Lease userLease;
+      try {
+        userLease = state.gate.acquire();
+      } catch (RuntimeException failure) {
+        globalLease.close();
+        throw failure;
+      }
+      ConcurrencyGate.Lease lease =
+          () -> {
+            userLease.close();
+            globalLease.close();
+          };
       ConcurrencyGate.Lease raced = sessions.putIfAbsent(session, lease);
       if (raced != null) lease.close();
       return true;

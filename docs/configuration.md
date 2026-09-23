@@ -45,10 +45,25 @@ Gateway 统一通过 gRPC mTLS 获取快照和 HDFS 包、上报心跳与传输�
 | HFG_FTP_ENABLED / HFG_SFTP_ENABLED | 均为 `true`；不用某协议时可关闭 |
 | HFG_FTP_BIND / HFG_SFTP_BIND | 均为 `0.0.0.0` |
 | HFG_FTP_ACTIVE_MODE / HFG_FTP_IDLE_TIMEOUT | `false` / `300` 秒 |
+| HFG_MAX_ACTIVE_TRANSFERS | `120`，单节点同时进行的上传与下载总数 |
+| HFG_MAX_UPLOADS / HFG_MAX_DOWNLOADS | `80` / `80`，分方向上限，避免单向流量耗尽节点 |
+| HFG_TRANSFER_ACQUIRE_TIMEOUT | `PT10S`，容量用尽后的最长背压等待时间 |
+| HFG_FTP_MAX_LOGINS / HFG_FTP_WORKER_THREADS | `200` / `128` |
+| HFG_SFTP_MAX_SESSIONS / HFG_SFTP_MAX_CHANNELS | `200` / `200`，节点级上限 |
+| HFG_SFTP_MAX_CHANNELS_PER_SESSION | `4`，阻止单个 SSH 会话占满节点 channel |
+| HFG_SFTP_WORKER_THREADS / HFG_SFTP_IDLE_TIMEOUT | `128` / `300` 秒 |
 
 主机名由操作系统自动获取，软件版本从 JAR Manifest 自动读取。同一服务组内每台 Gateway 的操作系统主机名必须唯一，否则 Manager 会拒绝重复主机名的心跳。`HFG_ROLE`、`HFG_VIP`、`HFG_MANAGER_URL`、`HFG_MANAGER_USERNAME`、`HFG_MANAGER_PASSWORD`、`HFG_SOFTWARE_VERSION` 和 `HFG_RPC_HOSTNAME` 已取消。
 
 Gateway 启动时从 Manager 读取一次服务组 VIP 作为 FTP PASV 对外地址。修改服务组 VIP 后必须滚动重启该组 Gateway，先重启 Standby、切换 VIP，再重启另一台。
+
+## Gateway 高并发与背压
+
+默认值面向单节点约 100 名用户同时上传/下载：FTP 允许 200 个登录并使用 128 个工作线程；SFTP 允许 200 个会话、节点 200 个 channel、单会话 4 个 channel，并复用 128 个工作线程。真正进入 HDFS 数据通道的传输由节点总量与上传/下载分方向三道公平许可共同控制，默认总量 120、上传 80、下载 80。容量短暂用尽时请求最多等待 10 秒，超时返回限流错误，不创建无界任务队列。
+
+每用户的上传速率、下载速率和最大连接数仍由 Manager 下发的流控策略控制；节点级参数是本机资源保护，两者同时生效。主备 Gateway 的节点级计数各自独立，VIP 切换后从新节点重新计数。HDFS 大文件继续采用流式读写，直接缓冲区读写复用每工作线程 64 KiB 固定缓冲；目录列表最多扫描 10000 个条目，超过时明确失败，避免大目录把堆内存和 NameNode RPC 拖垮。
+
+生产调优先观察 `hfg_transfers_active`、`hfg_transfers_waiting`、`hfg_transfers_rejected_total`、JVM 堆、进程 CPU、HDFS RPC 延迟和网络吞吐，再按实测逐步调整。不要只提高协议连接数而不提高 HDFS、网络和 JVM 容量。
 
 ## Gateway 端口
 
@@ -177,7 +192,7 @@ Manager 的 19090 端口使用双向 TLS gRPC。负载均衡必须采用支持 H
 
 ## Prometheus 可达性
 
-Gateway 默认只在 `127.0.0.1:18080` 暴露 Actuator，适合本机 Keepalived。中央 Prometheus 需要设置 `HFG_MANAGEMENT_BIND` 为管理网 IP或 `0.0.0.0`，并用防火墙仅允许 Prometheus 访问。同步修改 `deploy/prometheus/prometheus.yaml` 中的 Manager/Gateway 目标，启动后在 Prometheus Targets 页面确认全部为 `UP`。业务上传、下载、速率和配额仍只查询 `logs`，不写入 Prometheus。
+Gateway 默认只在 `127.0.0.1:18080` 暴露 Actuator，适合本机 Keepalived。中央 Prometheus 需要设置 `HFG_MANAGEMENT_BIND` 为管理网 IP或 `0.0.0.0`，并用防火墙仅允许 Prometheus 访问。同步修改 `deploy/prometheus/prometheus.yaml` 中的 Manager/Gateway 目标，启动后在 Prometheus Targets 页面确认全部为 `UP`。业务上传/下载明细、速率和配额仍查询 `logs`；节点当前活动传输、等待数和拒绝累计数写入 Prometheus，用于容量告警。
 
 
 ## 管理库与业务日志库

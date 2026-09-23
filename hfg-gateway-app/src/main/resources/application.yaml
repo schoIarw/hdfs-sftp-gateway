@@ -31,6 +31,11 @@ hfg:
   hdfs:
     runtime-path: ${HFG_HDFS_RUNTIME_PATH:/var/lib/hfg/hdfs-runtime}
     refresh-interval: ${HFG_HDFS_REFRESH_INTERVAL:PT1M}
+  concurrency:
+    max-active-transfers: ${HFG_MAX_ACTIVE_TRANSFERS:120}
+    max-uploads: ${HFG_MAX_UPLOADS:80}
+    max-downloads: ${HFG_MAX_DOWNLOADS:80}
+    acquire-timeout: ${HFG_TRANSFER_ACQUIRE_TIMEOUT:PT10S}
   ftp:
     enabled: ${HFG_FTP_ENABLED:true}
     bind-address: ${HFG_FTP_BIND:0.0.0.0}
@@ -38,6 +43,8 @@ hfg:
     passive-ports: ${HFG_FTP_PASSIVE_PORTS:30000-31000}
     active-mode-enabled: ${HFG_FTP_ACTIVE_MODE:false}
     idle-timeout-seconds: ${HFG_FTP_IDLE_TIMEOUT:300}
+    max-logins: ${HFG_FTP_MAX_LOGINS:200}
+    worker-threads: ${HFG_FTP_WORKER_THREADS:128}
   sftp:
     enabled: ${HFG_SFTP_ENABLED:true}
     bind-address: ${HFG_SFTP_BIND:0.0.0.0}
@@ -45,6 +52,11 @@ hfg:
     host-key-path: ${HFG_SFTP_HOST_KEY:/etc/hfg/ssh_host_ed25519_key}
     # 留空时自动识别已有主机密钥类型（EC/EdDSA/RSA），无法识别时按 MINA 默认 EC 生成
     host-key-algorithm: ${HFG_SFTP_HOST_KEY_ALGORITHM:}
+    idle-timeout-seconds: ${HFG_SFTP_IDLE_TIMEOUT:300}
+    max-sessions: ${HFG_SFTP_MAX_SESSIONS:200}
+    max-channels: ${HFG_SFTP_MAX_CHANNELS:200}
+    max-channels-per-session: ${HFG_SFTP_MAX_CHANNELS_PER_SESSION:4}
+    worker-threads: ${HFG_SFTP_WORKER_THREADS:128}
 logging:
   level:
     # Apache FtpServer 默认逐条打印命令与应答（FtpLoggingFilter 的 RECEIVED/SENT）

@@ -15,6 +15,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,14 +25,19 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-class GatewayEventReporter implements TransferEventSink {
+class GatewayEventReporter implements TransferEventSink, AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(GatewayEventReporter.class);
   private static final int BATCH_SIZE = 500;
+  private static final int APPEND_BATCH_SIZE = 256;
+  private static final int WAL_QUEUE_CAPACITY = 8192;
   private final ObjectMapper mapper;
   private final GatewayProperties properties;
   private final GrpcControlClient control;
   private final GatewayRuntimeStatus runtimeStatus;
   private final ReentrantLock appendLock = new ReentrantLock();
+  private final BlockingQueue<String> pending = new ArrayBlockingQueue<>(WAL_QUEUE_CAPACITY);
+  private final Thread writer;
+  private volatile boolean running = true;
 
   GatewayEventReporter(
       GatewayProperties properties,
@@ -40,22 +48,70 @@ class GatewayEventReporter implements TransferEventSink {
     this.mapper = mapper;
     this.control = control;
     this.runtimeStatus = runtimeStatus;
+    writer = new Thread(this::writeLoop, "hfg-event-wal");
+    writer.setDaemon(true);
+    writer.start();
   }
 
   @Override
   public void publish(TransferEvent event) {
+    String line;
+    try {
+      line = mapper.writeValueAsString(event);
+    } catch (IOException exception) {
+      log.error("Cannot serialize transfer event", exception);
+      return;
+    }
+    if (pending.offer(line)) return;
+    // Preserve audit events when a sustained burst fills the bounded queue. Only the overflowing
+    // caller pays the disk cost; normal transfer threads remain decoupled from WAL I/O.
+    appendLines(List.of(line));
+  }
+
+  private void writeLoop() {
+    List<String> batch = new ArrayList<>(APPEND_BATCH_SIZE);
+    while (running || !pending.isEmpty() || !batch.isEmpty()) {
+      try {
+        if (batch.isEmpty()) {
+          String first = pending.poll(1, TimeUnit.SECONDS);
+          if (first == null) continue;
+          batch.add(first);
+          pending.drainTo(batch, APPEND_BATCH_SIZE - 1);
+        }
+        if (appendLines(batch)) batch.clear();
+        else Thread.sleep(1000);
+      } catch (InterruptedException interrupted) {
+        if (running) log.warn("Transfer event WAL writer interrupted unexpectedly");
+      } catch (RuntimeException failure) {
+        log.error("Transfer event WAL writer failed", failure);
+        batch.clear();
+      }
+    }
+  }
+
+  private boolean appendLines(List<String> lines) {
+    if (lines.isEmpty()) return true;
     appendLock.lock();
     try {
       Path wal = properties.snapshot().eventWalPath();
       Files.createDirectories(wal.toAbsolutePath().getParent());
-      Files.writeString(
-          wal,
-          mapper.writeValueAsString(event) + System.lineSeparator(),
-          StandardCharsets.UTF_8,
-          StandardOpenOption.CREATE,
-          StandardOpenOption.APPEND);
+      try (BufferedWriter output =
+          Files.newBufferedWriter(
+              wal,
+              StandardCharsets.UTF_8,
+              StandardOpenOption.CREATE,
+              StandardOpenOption.APPEND)) {
+        for (String line : lines) {
+          output.write(line);
+          output.newLine();
+        }
+      }
+      runtimeStatus.healthy("event-wal");
+      return true;
     } catch (IOException exception) {
+      runtimeStatus.failed("event-wal", exception);
       log.error("Cannot append transfer event WAL", exception);
+      return false;
     } finally {
       appendLock.unlock();
     }
@@ -63,6 +119,7 @@ class GatewayEventReporter implements TransferEventSink {
 
   @Scheduled(fixedDelayString = "${hfg.snapshot.event-report-interval:PT5S}")
   void flush() {
+    drainPending();
     Path wal = properties.snapshot().eventWalPath();
     Path sending = wal.resolveSibling(wal.getFileName() + ".sending");
     try {
@@ -86,6 +143,29 @@ class GatewayEventReporter implements TransferEventSink {
       runtimeStatus.failed("event-reporting", exception);
       log.warn("Transfer event report failed; WAL retained: {}", exception.getMessage());
     }
+  }
+
+  private void drainPending() {
+    List<String> batch = new ArrayList<>(APPEND_BATCH_SIZE);
+    while (pending.drainTo(batch, APPEND_BATCH_SIZE) > 0) {
+      if (!appendLines(batch)) {
+        for (String line : batch) pending.offer(line);
+        return;
+      }
+      batch.clear();
+    }
+  }
+
+  @Override
+  public void close() {
+    running = false;
+    writer.interrupt();
+    try {
+      writer.join(5000);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+    }
+    drainPending();
   }
 
   /**

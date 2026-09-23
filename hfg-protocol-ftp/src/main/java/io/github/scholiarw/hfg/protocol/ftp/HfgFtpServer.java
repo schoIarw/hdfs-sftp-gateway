@@ -20,6 +20,12 @@ public final class HfgFtpServer implements AutoCloseable {
     listener.setIdleTimeout(settings.idleTimeoutSeconds());
     listener.setDataConnectionConfiguration(data.createDataConnectionConfiguration());
     var factory = new FtpServerFactory();
+    var connections = new ConnectionConfigFactory();
+    connections.setAnonymousLoginEnabled(false);
+    connections.setMaxAnonymousLogins(0);
+    connections.setMaxLogins(settings.maxLogins());
+    connections.setMaxThreads(settings.workerThreads());
+    factory.setConnectionConfig(connections.createConnectionConfig());
     factory.setUserManager(users);
     factory.setFileSystem(files);
     factory.addListener("default", listener.createListener());
@@ -41,10 +47,14 @@ public final class HfgFtpServer implements AutoCloseable {
       String passivePorts,
       String passiveExternalAddress,
       boolean activeModeEnabled,
-      int idleTimeoutSeconds) {
+      int idleTimeoutSeconds,
+      int maxLogins,
+      int workerThreads) {
     public Settings {
       Objects.requireNonNull(bindAddress);
       Objects.requireNonNull(passivePorts);
+      if (maxLogins < 1 || workerThreads < 1)
+        throw new IllegalArgumentException("FTP maxLogins and workerThreads must be positive");
     }
   }
 }

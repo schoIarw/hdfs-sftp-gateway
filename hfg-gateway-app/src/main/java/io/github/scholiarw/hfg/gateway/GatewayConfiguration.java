@@ -8,6 +8,9 @@ import io.github.scholiarw.hfg.protocol.ftp.*;
 import io.github.scholiarw.hfg.protocol.sftp.*;
 import io.github.scholiarw.hfg.storage.StorageClientFactory;
 import io.github.scholiarw.hfg.transfer.*;
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.InetAddress;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
@@ -53,8 +56,38 @@ class GatewayConfiguration {
   }
 
   @Bean
-  TransferLimiter transferLimiter() {
-    return new LocalTransferLimiter();
+  TransferLimiter transferLimiter(GatewayProperties p, MeterRegistry metrics) {
+    var c = p.concurrency();
+    var limiter =
+        new NodeTransferLimiter(
+            new LocalTransferLimiter(),
+            c.maxActiveTransfers(),
+            c.maxUploads(),
+            c.maxDownloads(),
+            c.acquireTimeout());
+    Gauge.builder("hfg.transfers.active", limiter, NodeTransferLimiter::activeTotal)
+        .description("Active transfers admitted on this gateway")
+        .tag("direction", "all")
+        .register(metrics);
+    Gauge.builder(
+            "hfg.transfers.active",
+            limiter,
+            value -> value.active(TransferDirection.UPLOAD))
+        .tag("direction", "upload")
+        .register(metrics);
+    Gauge.builder(
+            "hfg.transfers.active",
+            limiter,
+            value -> value.active(TransferDirection.DOWNLOAD))
+        .tag("direction", "download")
+        .register(metrics);
+    Gauge.builder("hfg.transfers.waiting", limiter, NodeTransferLimiter::waiting)
+        .description("Transfers waiting for node capacity")
+        .register(metrics);
+    FunctionCounter.builder("hfg.transfers.rejected", limiter, NodeTransferLimiter::rejected)
+        .description("Transfers rejected after the bounded capacity wait")
+        .register(metrics);
+    return limiter;
   }
 
   @Bean
@@ -119,7 +152,9 @@ class GatewayConfiguration {
                 f.passivePorts(),
                 control.ftpPassiveExternalAddress(),
                 f.activeModeEnabled(),
-                f.idleTimeoutSeconds()),
+                f.idleTimeoutSeconds(),
+                f.maxLogins(),
+                f.workerThreads()),
             new HfgFtpUserManager(users, verifier, Clock.systemUTC()),
             new HfgFtpFileSystemFactory(users, transfers, p.gatewayId()));
     if (f.enabled()) server.start();
@@ -176,11 +211,19 @@ class GatewayConfiguration {
       TransferService transfers)
       throws Exception {
     var s = p.sftp();
-    var auth = new HfgSftpAuthenticator(users, verifier, Clock.systemUTC());
+    var auth =
+        new HfgSftpAuthenticator(users, verifier, Clock.systemUTC(), s.maxSessions());
     var server =
         new HfgSftpServer(
             new HfgSftpServer.Settings(
-                s.bindAddress(), s.port(), s.hostKeyPath(), s.hostKeyAlgorithm()),
+                s.bindAddress(),
+                s.port(),
+                s.hostKeyPath(),
+                s.hostKeyAlgorithm(),
+                s.idleTimeoutSeconds(),
+                s.maxChannels(),
+                s.maxChannelsPerSession(),
+                s.workerThreads()),
             auth,
             new HfgSftpFileSystemAccessor(users, transfers, p.gatewayId()));
     if (s.enabled()) server.start();

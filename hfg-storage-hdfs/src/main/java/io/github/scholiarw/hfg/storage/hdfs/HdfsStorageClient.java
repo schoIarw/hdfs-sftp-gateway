@@ -10,6 +10,10 @@ import java.util.List;
 import org.apache.hadoop.fs.*;
 
 public final class HdfsStorageClient implements StorageClient {
+  private static final int IO_BUFFER_BYTES = 64 * 1024;
+  private static final int MAX_DIRECTORY_ENTRIES = 10_000;
+  private static final ThreadLocal<byte[]> IO_BUFFER =
+      ThreadLocal.withInitial(() -> new byte[IO_BUFFER_BYTES]);
   private final FileSystem fileSystem;
   private final boolean closeFileSystem;
 
@@ -34,7 +38,14 @@ public final class HdfsStorageClient implements StorageClient {
       throw new IllegalArgumentException("pageSize must be between 1 and 10000");
     var result = new ArrayList<StorageEntry>(pageSize);
     RemoteIterator<LocatedFileStatus> iterator = fileSystem.listLocatedStatus(path(absolutePath));
-    while (iterator.hasNext()) result.add(entry(iterator.next()));
+    while (iterator.hasNext()) {
+      if (result.size() == MAX_DIRECTORY_ENTRIES)
+        throw new IOException(
+            "Directory contains more than "
+                + MAX_DIRECTORY_ENTRIES
+                + " entries; refine the directory layout before listing it through HFG");
+      result.add(entry(iterator.next()));
+    }
     result.sort(Comparator.comparing(StorageEntry::name));
     return result.stream()
         .filter(e -> pageToken == null || e.name().compareTo(pageToken) > 0)
@@ -55,8 +66,8 @@ public final class HdfsStorageClient implements StorageClient {
       @Override
       public int read(ByteBuffer target) throws IOException {
         if (!target.hasRemaining()) return 0;
-        byte[] buffer = new byte[Math.min(target.remaining(), 64 * 1024)];
-        int count = input.read(buffer);
+        byte[] buffer = IO_BUFFER.get();
+        int count = input.read(buffer, 0, Math.min(target.remaining(), buffer.length));
         if (count > 0) target.put(buffer, 0, count);
         return count;
       }
@@ -100,7 +111,7 @@ public final class HdfsStorageClient implements StorageClient {
           output.write(source.array(), offset, total);
           source.position(source.limit());
         } else {
-          byte[] buffer = new byte[Math.min(total, 64 * 1024)];
+          byte[] buffer = IO_BUFFER.get();
           while (source.hasRemaining()) {
             int n = Math.min(source.remaining(), buffer.length);
             source.get(buffer, 0, n);

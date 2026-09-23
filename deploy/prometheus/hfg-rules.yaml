@@ -33,3 +33,17 @@ groups:
           severity: warning
         annotations:
           summary: "HFG database connection pool has pending requests"
+      - alert: HfgTransferCapacityWaiting
+        expr: hfg_transfers_waiting{application="hfg-gateway"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HFG gateway transfers are continuously waiting for capacity"
+      - alert: HfgTransferCapacityRejected
+        expr: rate(hfg_transfers_rejected_total{application="hfg-gateway"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HFG gateway is rejecting transfers after the capacity wait timeout"

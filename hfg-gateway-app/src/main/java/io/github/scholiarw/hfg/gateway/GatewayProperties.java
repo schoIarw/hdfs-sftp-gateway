@@ -12,6 +12,7 @@ public record GatewayProperties(
     Snapshot snapshot,
     Rpc rpc,
     Hdfs hdfs,
+    Concurrency concurrency,
     Ftp ftp,
     Sftp sftp) {
   public record Snapshot(
@@ -33,14 +34,31 @@ public record GatewayProperties(
 
   public record Hdfs(Path runtimePath, Duration refreshInterval) {}
 
+  public record Concurrency(
+      int maxActiveTransfers,
+      int maxUploads,
+      int maxDownloads,
+      Duration acquireTimeout) {}
+
   public record Ftp(
       boolean enabled,
       String bindAddress,
       int port,
       String passivePorts,
       boolean activeModeEnabled,
-      int idleTimeoutSeconds) {}
+      int idleTimeoutSeconds,
+      int maxLogins,
+      int workerThreads) {}
 
   public record Sftp(
-      boolean enabled, String bindAddress, int port, Path hostKeyPath, String hostKeyAlgorithm) {}
+      boolean enabled,
+      String bindAddress,
+      int port,
+      Path hostKeyPath,
+      String hostKeyAlgorithm,
+      int idleTimeoutSeconds,
+      int maxSessions,
+      int maxChannels,
+      int maxChannelsPerSession,
+      int workerThreads) {}
 }

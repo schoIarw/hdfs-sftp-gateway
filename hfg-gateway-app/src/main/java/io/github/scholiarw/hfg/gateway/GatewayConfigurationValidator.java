@@ -24,6 +24,17 @@ final class GatewayConfigurationValidator {
     requirePositive("HFG_HEARTBEAT_INTERVAL", properties.rpc().heartbeatInterval());
     requirePositive("HFG_HDFS_REFRESH_INTERVAL", properties.hdfs().refreshInterval());
     requirePositive("HFG_EVENT_REPORT_INTERVAL", properties.snapshot().eventReportInterval());
+    requirePositive("HFG_MAX_ACTIVE_TRANSFERS", properties.concurrency().maxActiveTransfers());
+    requirePositive("HFG_MAX_UPLOADS", properties.concurrency().maxUploads());
+    requirePositive("HFG_MAX_DOWNLOADS", properties.concurrency().maxDownloads());
+    requirePositive("HFG_TRANSFER_ACQUIRE_TIMEOUT", properties.concurrency().acquireTimeout());
+    requirePositive("HFG_FTP_MAX_LOGINS", properties.ftp().maxLogins());
+    requirePositive("HFG_FTP_WORKER_THREADS", properties.ftp().workerThreads());
+    requirePositive("HFG_SFTP_MAX_SESSIONS", properties.sftp().maxSessions());
+    requirePositive("HFG_SFTP_MAX_CHANNELS", properties.sftp().maxChannels());
+    requirePositive(
+        "HFG_SFTP_MAX_CHANNELS_PER_SESSION", properties.sftp().maxChannelsPerSession());
+    requirePositive("HFG_SFTP_WORKER_THREADS", properties.sftp().workerThreads());
     requireReadable("HFG_RPC_CA", properties.rpc().caCertificate());
     requireReadable("HFG_RPC_CLIENT_CERT", properties.rpc().clientCertificate());
     requireReadable("HFG_RPC_CLIENT_KEY", properties.rpc().clientPrivateKey());
@@ -61,6 +72,10 @@ final class GatewayConfigurationValidator {
   private static void requirePositive(String name, Duration value) {
     if (value == null || value.isZero() || value.isNegative())
       throw new IllegalStateException(name + " must be a positive ISO-8601 duration");
+  }
+
+  private static void requirePositive(String name, int value) {
+    if (value < 1) throw new IllegalStateException(name + " must be a positive integer");
   }
 
   private static void requireReadable(String name, Path path) {

@@ -62,6 +62,25 @@ class HfgSftpAuthenticatorTest {
     assertTrue(authenticator.authenticate("limited", "password", second));
   }
 
+  @Test
+  void limitsAndReleasesSessionsAcrossUsers() {
+    UserSnapshot firstUser = user("first", "hash:password");
+    UserSnapshot secondUser = user("second", "hash:password");
+    var authenticator =
+        new HfgSftpAuthenticator(
+            provider(firstUser, secondUser),
+            (raw, encoded) -> ("hash:" + raw).equals(encoded),
+            Clock.fixed(Instant.parse("2026-09-21T00:00:00Z"), ZoneOffset.UTC),
+            1);
+    ServerSession first = session("first");
+    ServerSession second = session("second");
+
+    assertTrue(authenticator.authenticate("first", "password", first));
+    assertFalse(authenticator.authenticate("second", "password", second));
+    authenticator.sessionClosed(first);
+    assertTrue(authenticator.authenticate("second", "password", second));
+  }
+
   private static UserSnapshot user(String username, String passwordHash) {
     return user(username, passwordHash, 0);
   }
