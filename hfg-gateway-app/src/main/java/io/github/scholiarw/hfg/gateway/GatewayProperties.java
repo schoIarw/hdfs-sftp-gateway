@@ -35,10 +35,7 @@ public record GatewayProperties(
   public record Hdfs(Path runtimePath, Duration refreshInterval) {}
 
   public record Concurrency(
-      int maxActiveTransfers,
-      int maxUploads,
-      int maxDownloads,
-      Duration acquireTimeout) {}
+      int maxActiveTransfers, int maxUploads, int maxDownloads, Duration acquireTimeout) {}
 
   public record Ftp(
       boolean enabled,

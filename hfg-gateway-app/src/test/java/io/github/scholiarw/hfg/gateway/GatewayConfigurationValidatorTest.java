@@ -157,9 +157,7 @@ class GatewayConfigurationValidatorTest {
             Duration.ofSeconds(10)),
         new GatewayProperties.Hdfs(temp.resolve("hdfs-runtime"), Duration.ofMinutes(1)),
         new GatewayProperties.Concurrency(120, 80, 80, Duration.ofSeconds(10)),
-        new GatewayProperties.Ftp(
-            true, "0.0.0.0", 21, "30000-31000", false, 300, 200, 128),
-        new GatewayProperties.Sftp(
-            true, "0.0.0.0", 22, hostKey, null, 300, 200, 200, 4, 128));
+        new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300, 200, 128),
+        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey, null, 300, 200, 200, 4, 128));
   }
 }

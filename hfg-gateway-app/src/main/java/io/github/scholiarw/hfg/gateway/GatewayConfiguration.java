@@ -211,8 +211,7 @@ class GatewayConfiguration {
       TransferService transfers)
       throws Exception {
     var s = p.sftp();
-    var auth =
-        new HfgSftpAuthenticator(users, verifier, Clock.systemUTC(), s.maxSessions());
+    var auth = new HfgSftpAuthenticator(users, verifier, Clock.systemUTC(), s.maxSessions());
     var server =
         new HfgSftpServer(
             new HfgSftpServer.Settings(

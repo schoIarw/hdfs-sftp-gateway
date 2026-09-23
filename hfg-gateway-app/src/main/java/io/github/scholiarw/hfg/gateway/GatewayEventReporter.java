@@ -97,10 +97,7 @@ class GatewayEventReporter implements TransferEventSink, AutoCloseable {
       Files.createDirectories(wal.toAbsolutePath().getParent());
       try (BufferedWriter output =
           Files.newBufferedWriter(
-              wal,
-              StandardCharsets.UTF_8,
-              StandardOpenOption.CREATE,
-              StandardOpenOption.APPEND)) {
+              wal, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
         for (String line : lines) {
           output.write(line);
           output.newLine();

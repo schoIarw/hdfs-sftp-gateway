@@ -31,7 +31,10 @@ class GatewayEventReporterTest {
             null);
     var reporter =
         new GatewayEventReporter(
-            properties, new ObjectMapper().findAndRegisterModules(), null, new GatewayRuntimeStatus());
+            properties,
+            new ObjectMapper().findAndRegisterModules(),
+            null,
+            new GatewayRuntimeStatus());
     TransferEvent event =
         new TransferEvent(
             UUID.randomUUID(),

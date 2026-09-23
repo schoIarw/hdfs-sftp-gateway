@@ -32,8 +32,7 @@ final class GatewayConfigurationValidator {
     requirePositive("HFG_FTP_WORKER_THREADS", properties.ftp().workerThreads());
     requirePositive("HFG_SFTP_MAX_SESSIONS", properties.sftp().maxSessions());
     requirePositive("HFG_SFTP_MAX_CHANNELS", properties.sftp().maxChannels());
-    requirePositive(
-        "HFG_SFTP_MAX_CHANNELS_PER_SESSION", properties.sftp().maxChannelsPerSession());
+    requirePositive("HFG_SFTP_MAX_CHANNELS_PER_SESSION", properties.sftp().maxChannelsPerSession());
     requirePositive("HFG_SFTP_WORKER_THREADS", properties.sftp().workerThreads());
     requireReadable("HFG_RPC_CA", properties.rpc().caCertificate());
     requireReadable("HFG_RPC_CLIENT_CERT", properties.rpc().clientCertificate());
