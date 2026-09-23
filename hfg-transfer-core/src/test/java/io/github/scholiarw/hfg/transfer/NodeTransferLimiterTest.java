@@ -12,13 +12,11 @@ import org.junit.jupiter.api.Test;
 class NodeTransferLimiterTest {
   @Test
   void rejectsBeyondNodeLimitAndReleasesExactlyOnce() {
-    var limiter =
-        new NodeTransferLimiter(TransferLimiter.unlimited(), 1, 1, 1, Duration.ZERO);
+    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 1, 1, 1, Duration.ZERO);
     var first = limiter.open(user(), TransferDirection.UPLOAD);
 
     HfgException rejected =
-        assertThrows(
-            HfgException.class, () -> limiter.open(user(), TransferDirection.DOWNLOAD));
+        assertThrows(HfgException.class, () -> limiter.open(user(), TransferDirection.DOWNLOAD));
     assertEquals(HfgErrorCode.RATE_LIMITED, rejected.code());
     assertEquals(1, limiter.activeTotal());
     assertEquals(1, limiter.rejected());
@@ -26,19 +24,16 @@ class NodeTransferLimiterTest {
     first.complete(true);
     first.complete(false);
     assertEquals(0, limiter.activeTotal());
-    assertDoesNotThrow(
-        () -> limiter.open(user(), TransferDirection.DOWNLOAD).complete(true));
+    assertDoesNotThrow(() -> limiter.open(user(), TransferDirection.DOWNLOAD).complete(true));
   }
 
   @Test
   void releasesTotalPermitWhenDirectionLimitRejects() {
-    var limiter =
-        new NodeTransferLimiter(TransferLimiter.unlimited(), 2, 1, 1, Duration.ZERO);
+    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 2, 1, 1, Duration.ZERO);
     var upload = limiter.open(user(), TransferDirection.UPLOAD);
 
     assertThrows(HfgException.class, () -> limiter.open(user(), TransferDirection.UPLOAD));
-    var download =
-        assertDoesNotThrow(() -> limiter.open(user(), TransferDirection.DOWNLOAD));
+    var download = assertDoesNotThrow(() -> limiter.open(user(), TransferDirection.DOWNLOAD));
     assertEquals(2, limiter.activeTotal());
 
     upload.complete(true);
