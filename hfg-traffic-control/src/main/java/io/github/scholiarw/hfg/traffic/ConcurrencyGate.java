@@ -20,7 +20,9 @@ public final class ConcurrencyGate {
     return acquire(Duration.ZERO);
   }
 
-  /** Waits for a bounded period so callers apply backpressure without creating an unbounded queue. */
+  /**
+   * Waits for a bounded period so callers apply backpressure without creating an unbounded queue.
+   */
   public Lease acquire(Duration timeout) {
     if (timeout == null || timeout.isNegative())
       throw new IllegalArgumentException("timeout must be non-negative");
@@ -33,8 +35,7 @@ public final class ConcurrencyGate {
       throw new HfgException(
           HfgErrorCode.RATE_LIMITED, "Interrupted while waiting for concurrency capacity");
     }
-    if (!acquired)
-      throw new HfgException(HfgErrorCode.RATE_LIMITED, "Concurrency limit reached");
+    if (!acquired) throw new HfgException(HfgErrorCode.RATE_LIMITED, "Concurrency limit reached");
     return new Lease() {
       private boolean closed;
 
