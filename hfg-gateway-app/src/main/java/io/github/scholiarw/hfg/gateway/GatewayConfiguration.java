@@ -69,16 +69,11 @@ class GatewayConfiguration {
         .description("Active transfers admitted on this gateway")
         .tag("direction", "all")
         .register(metrics);
-    Gauge.builder(
-            "hfg.transfers.active",
-            limiter,
-            value -> value.active(TransferDirection.UPLOAD))
+    Gauge.builder("hfg.transfers.active", limiter, value -> value.active(TransferDirection.UPLOAD))
         .tag("direction", "upload")
         .register(metrics);
     Gauge.builder(
-            "hfg.transfers.active",
-            limiter,
-            value -> value.active(TransferDirection.DOWNLOAD))
+            "hfg.transfers.active", limiter, value -> value.active(TransferDirection.DOWNLOAD))
         .tag("direction", "download")
         .register(metrics);
     Gauge.builder("hfg.transfers.waiting", limiter, NodeTransferLimiter::waiting)
