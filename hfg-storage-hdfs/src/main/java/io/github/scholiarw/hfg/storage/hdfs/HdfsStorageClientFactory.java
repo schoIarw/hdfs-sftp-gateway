@@ -98,9 +98,9 @@ public final class HdfsStorageClientFactory implements StorageClientFactory {
       FileSystem fs =
           actor.doAs(
               (PrivilegedExceptionAction<FileSystem>) () -> FileSystem.newInstance(configuration));
-    // The factory owns this FileSystem. Individual operations reuse the client without closing it;
-    // retiring the factory must close the underlying DFSClient and its sockets/threads.
-    return new HdfsStorageClient(fs, true);
+      // The factory owns this FileSystem. Individual operations reuse the client without closing
+      // it; retiring the factory must close the underlying DFSClient and its sockets/threads.
+      return new HdfsStorageClient(fs, true);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IOException("Interrupted while creating HDFS client", e);
