@@ -79,13 +79,7 @@ public final class TransferService {
       var handle = storage.openRead(resolved.storagePath(), offset);
       try {
         return new Download(
-            UUID.randomUUID(),
-            context,
-            resolved.virtualPath(),
-            storage,
-            handle,
-            permit,
-            events);
+            UUID.randomUUID(), context, resolved.virtualPath(), storage, handle, permit, events);
       } catch (RuntimeException exception) {
         try {
           handle.close();
@@ -115,8 +109,7 @@ public final class TransferService {
     String parent = parent(resolved.storagePath());
     String stagingDir = stagingPath(parent);
     String stagingPath = stagingDir + "/" + transferId + ".part";
-    TransferLimiter.Permit permit =
-        limiter.open(context.user(), TransferDirection.UPLOAD, offset);
+    TransferLimiter.Permit permit = limiter.open(context.user(), TransferDirection.UPLOAD, offset);
     StorageClient.Lease storageLease = null;
     try {
       storageLease = storage.retain();

@@ -7,8 +7,8 @@ import io.github.scholiarw.hfg.policy.*;
 import io.github.scholiarw.hfg.storage.*;
 import java.io.*;
 import java.nio.ByteBuffer;
-import java.time.Instant;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.*;
 
@@ -159,8 +159,7 @@ class TransferServiceTest {
     UUID id = UUID.randomUUID();
     try (var first = service.openUpload(context, "/file.bin", id, 0, true)) {
       first.write(ByteBuffer.wrap(new byte[] {1, 2}));
-      assertThrows(
-          IOException.class, () -> service.openUpload(context, "/file.bin", id, 0, true));
+      assertThrows(IOException.class, () -> service.openUpload(context, "/file.bin", id, 0, true));
       assertArrayEquals(new byte[] {1, 2}, storage.files.get(first.stagingPath()));
     }
   }

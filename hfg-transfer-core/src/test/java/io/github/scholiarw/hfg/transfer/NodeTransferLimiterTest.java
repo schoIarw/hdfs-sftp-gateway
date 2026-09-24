@@ -47,8 +47,7 @@ class NodeTransferLimiterTest {
     var download = limiter.open(user(), TransferDirection.DOWNLOAD);
     var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
     try {
-      var waitingDownload =
-          executor.submit(() -> limiter.open(user(), TransferDirection.DOWNLOAD));
+      var waitingDownload = executor.submit(() -> limiter.open(user(), TransferDirection.DOWNLOAD));
       for (int i = 0; i < 100 && limiter.waiting() == 0; i++) Thread.sleep(5);
       assertEquals(1, limiter.waiting());
       var upload = limiter.open(user(), TransferDirection.UPLOAD);
