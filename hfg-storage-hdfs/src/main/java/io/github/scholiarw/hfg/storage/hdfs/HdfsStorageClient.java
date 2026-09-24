@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.fs.*;
 
 public final class HdfsStorageClient implements StorageClient {
@@ -16,6 +17,9 @@ public final class HdfsStorageClient implements StorageClient {
       ThreadLocal.withInitial(() -> new byte[IO_BUFFER_BYTES]);
   private final FileSystem fileSystem;
   private final boolean closeFileSystem;
+  private int openHandles;
+  private boolean closeRequested;
+  private boolean fileSystemClosed;
 
   public HdfsStorageClient(FileSystem fileSystem) {
     this(fileSystem, true);
@@ -24,6 +28,15 @@ public final class HdfsStorageClient implements StorageClient {
   public HdfsStorageClient(FileSystem fileSystem, boolean closeFileSystem) {
     this.fileSystem = fileSystem;
     this.closeFileSystem = closeFileSystem;
+  }
+
+  @Override
+  public Lease retain() throws IOException {
+    beginHandle();
+    AtomicBoolean released = new AtomicBoolean();
+    return () -> {
+      if (released.compareAndSet(false, true)) endHandle();
+    };
   }
 
   @Override
@@ -55,14 +68,30 @@ public final class HdfsStorageClient implements StorageClient {
 
   @Override
   public StorageReadHandle openRead(String absolutePath, long offset) throws IOException {
-    FSDataInputStream input = fileSystem.open(path(absolutePath));
+    beginHandle();
+    FSDataInputStream opened = null;
     try {
-      input.seek(offset);
-    } catch (IOException e) {
-      input.close();
+      opened = fileSystem.open(path(absolutePath));
+      opened.seek(offset);
+    } catch (IOException | RuntimeException e) {
+      if (opened != null) {
+        try {
+          opened.close();
+        } catch (IOException closeFailure) {
+          e.addSuppressed(closeFailure);
+        }
+      }
+      try {
+        endHandle();
+      } catch (IOException closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
       throw e;
     }
+    final FSDataInputStream input = opened;
     return new StorageReadHandle() {
+      private final AtomicBoolean closed = new AtomicBoolean();
+
       @Override
       public int read(ByteBuffer target) throws IOException {
         if (!target.hasRemaining()) return 0;
@@ -84,23 +113,41 @@ public final class HdfsStorageClient implements StorageClient {
 
       @Override
       public void close() throws IOException {
-        input.close();
+        if (!closed.compareAndSet(false, true)) return;
+        try {
+          input.close();
+        } finally {
+          endHandle();
+        }
       }
     };
   }
 
   @Override
   public StorageWriteHandle create(String absolutePath, boolean overwrite) throws IOException {
-    return writeHandle(fileSystem.create(path(absolutePath), overwrite));
+    beginHandle();
+    try {
+      return writeHandle(fileSystem.create(path(absolutePath), overwrite));
+    } catch (IOException | RuntimeException e) {
+      endHandle();
+      throw e;
+    }
   }
 
   @Override
   public StorageWriteHandle append(String absolutePath) throws IOException {
-    return writeHandle(fileSystem.append(path(absolutePath)));
+    beginHandle();
+    try {
+      return writeHandle(fileSystem.append(path(absolutePath)));
+    } catch (IOException | RuntimeException e) {
+      endHandle();
+      throw e;
+    }
   }
 
-  private static StorageWriteHandle writeHandle(FSDataOutputStream output) {
+  private StorageWriteHandle writeHandle(FSDataOutputStream output) {
     return new StorageWriteHandle() {
+      private final AtomicBoolean closed = new AtomicBoolean();
       private long position = output.getPos();
 
       @Override
@@ -134,7 +181,12 @@ public final class HdfsStorageClient implements StorageClient {
 
       @Override
       public void close() throws IOException {
-        output.close();
+        if (!closed.compareAndSet(false, true)) return;
+        try {
+          output.close();
+        } finally {
+          endHandle();
+        }
       }
     };
   }
@@ -152,6 +204,17 @@ public final class HdfsStorageClient implements StorageClient {
   @Override
   public boolean rename(String sourceAbsolutePath, String targetAbsolutePath) throws IOException {
     return fileSystem.rename(path(sourceAbsolutePath), path(targetAbsolutePath));
+  }
+
+  @Override
+  public void renameReplace(String sourceAbsolutePath, String targetAbsolutePath)
+      throws IOException {
+    if (!(fileSystem instanceof org.apache.hadoop.hdfs.DistributedFileSystem dfs))
+      throw new IOException("Atomic replacement requires HDFS DistributedFileSystem");
+    dfs.rename(
+        path(sourceAbsolutePath),
+        path(targetAbsolutePath),
+        org.apache.hadoop.fs.Options.Rename.OVERWRITE);
   }
 
   @Override
@@ -184,8 +247,28 @@ public final class HdfsStorageClient implements StorageClient {
 
   @Override
   public void close() throws IOException {
-    // Pooled clients stay open for the lifetime of the factory; only owners close the FileSystem.
-    if (closeFileSystem) fileSystem.close();
+    if (!closeFileSystem) return;
+    synchronized (this) {
+      closeRequested = true;
+      closeIfIdle();
+    }
+  }
+
+  private synchronized void beginHandle() throws IOException {
+    if (closeRequested) throw new IOException("HDFS client pool has been retired");
+    openHandles++;
+  }
+
+  private synchronized void endHandle() throws IOException {
+    openHandles--;
+    closeIfIdle();
+  }
+
+  private void closeIfIdle() throws IOException {
+    if (closeRequested && openHandles == 0 && !fileSystemClosed) {
+      fileSystemClosed = true;
+      fileSystem.close();
+    }
   }
 
   private static Path path(String value) {

@@ -74,6 +74,7 @@ public final class TransferService {
       audit(context, "DOWNLOAD", path, 0, TransferStatus.FAILED, e.getMessage());
       throw e;
     }
+    TransferLimiter.Permit permit = limiter.open(context.user(), TransferDirection.DOWNLOAD, 0);
     try {
       var handle = storage.openRead(resolved.storagePath(), offset);
       try {
@@ -83,7 +84,7 @@ public final class TransferService {
             resolved.virtualPath(),
             storage,
             handle,
-            limiter.open(context.user(), TransferDirection.DOWNLOAD, 0),
+            permit,
             events);
       } catch (RuntimeException exception) {
         try {
@@ -93,7 +94,8 @@ public final class TransferService {
         }
         throw exception;
       }
-    } catch (Exception e) {
+    } catch (IOException | RuntimeException e) {
+      permit.close();
       throw e;
     }
   }
@@ -113,11 +115,17 @@ public final class TransferService {
     String parent = parent(resolved.storagePath());
     String stagingDir = stagingPath(parent);
     String stagingPath = stagingDir + "/" + transferId + ".part";
+    TransferLimiter.Permit permit =
+        limiter.open(context.user(), TransferDirection.UPLOAD, offset);
+    StorageClient.Lease storageLease = null;
     try {
+      storageLease = storage.retain();
       storage.mkdirs(stagingDir);
       StorageWriteHandle handle;
       if (offset == 0) {
-        handle = storage.create(stagingPath, true);
+        // FTP/SFTP resume IDs are deterministic for a user and path. Refuse to truncate an
+        // existing partial upload, which may still be written by another session or gateway.
+        handle = storage.create(stagingPath, false);
       } else {
         if (!storage.exists(stagingPath) || storage.stat(stagingPath).length() != offset) {
           throw new HfgException(
@@ -135,7 +143,8 @@ public final class TransferService {
             overwrite,
             storage,
             handle,
-            limiter.open(context.user(), TransferDirection.UPLOAD, offset),
+            permit,
+            storageLease,
             events);
       } catch (RuntimeException exception) {
         try {
@@ -145,7 +154,15 @@ public final class TransferService {
         }
         throw exception;
       }
-    } catch (Exception e) {
+    } catch (IOException | RuntimeException e) {
+      if (storageLease != null) {
+        try {
+          storageLease.close();
+        } catch (IOException closeFailure) {
+          e.addSuppressed(closeFailure);
+        }
+      }
+      permit.close();
       throw e;
     }
   }
@@ -466,6 +483,7 @@ public final class TransferService {
     private final StorageClient storage;
     private final StorageWriteHandle handle;
     private final TransferLimiter.Permit permit;
+    private final StorageClient.Lease storageLease;
     private final TransferEventSink events;
     private final long initialPosition;
     private long bytes;
@@ -482,6 +500,7 @@ public final class TransferService {
         StorageClient storage,
         StorageWriteHandle handle,
         TransferLimiter.Permit permit,
+        StorageClient.Lease storageLease,
         TransferEventSink events) {
       this.id = id;
       this.context = context;
@@ -492,6 +511,7 @@ public final class TransferService {
       this.storage = storage;
       this.handle = handle;
       this.permit = permit;
+      this.storageLease = storageLease;
       this.events = events;
       this.initialPosition = handle.position();
       events.publish(
@@ -515,11 +535,15 @@ public final class TransferService {
       if (completed) return;
       handle.flush();
       handle.close();
-      if (storage.exists(target)) {
-        if (!overwrite) throw new HfgException(HfgErrorCode.ALREADY_EXISTS, "Target exists");
-        storage.delete(target, false);
+      if (overwrite) {
+        // HDFS rename2 with OVERWRITE is one NameNode operation: failed commits keep the old
+        // target visible. Deleting it first made a transient rename failure lose the old file.
+        storage.renameReplace(staging, target);
+      } else {
+        if (storage.exists(target))
+          throw new HfgException(HfgErrorCode.ALREADY_EXISTS, "Target exists");
+        if (!storage.rename(staging, target)) throw new IOException("Atomic commit rename failed");
       }
-      if (!storage.rename(staging, target)) throw new IOException("Atomic commit rename failed");
       completed = true;
     }
 
@@ -528,29 +552,33 @@ public final class TransferService {
       if (closed) return;
       closed = true;
       IOException failure = null;
-      if (!completed)
-        try {
-          handle.close();
-        } catch (IOException e) {
-          failure = e;
-        }
-      permit.complete(completed && failure == null);
-      events.publish(
-          event(
-              id,
-              context,
-              TransferDirection.UPLOAD,
-              completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
-              virtualPath,
-              completed ? position() : bytes,
-              failure == null ? null : HfgErrorCode.INTERNAL_ERROR));
-      audit(
-          context,
-          "UPLOAD",
-          virtualPath,
-          completed ? position() : bytes,
-          completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
-          failure == null ? null : failure.getMessage());
+      try {
+        if (!completed)
+          try {
+            handle.close();
+          } catch (IOException e) {
+            failure = e;
+          }
+        permit.complete(completed && failure == null);
+        events.publish(
+            event(
+                id,
+                context,
+                TransferDirection.UPLOAD,
+                completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
+                virtualPath,
+                completed ? position() : bytes,
+                failure == null ? null : HfgErrorCode.INTERNAL_ERROR));
+        audit(
+            context,
+            "UPLOAD",
+            virtualPath,
+            completed ? position() : bytes,
+            completed ? TransferStatus.COMPLETED : TransferStatus.ABORTED,
+            failure == null ? null : failure.getMessage());
+      } finally {
+        storageLease.close();
+      }
       if (failure != null) throw failure;
     }
 

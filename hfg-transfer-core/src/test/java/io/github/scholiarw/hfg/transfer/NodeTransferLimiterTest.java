@@ -41,6 +41,27 @@ class NodeTransferLimiterTest {
   }
 
   @Test
+  void saturatedDownloadDirectionDoesNotOccupyAnIdleUploadSlot() throws Exception {
+    var limiter =
+        new NodeTransferLimiter(TransferLimiter.unlimited(), 2, 1, 1, 0, Duration.ofSeconds(1));
+    var download = limiter.open(user(), TransferDirection.DOWNLOAD);
+    var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    try {
+      var waitingDownload =
+          executor.submit(() -> limiter.open(user(), TransferDirection.DOWNLOAD));
+      for (int i = 0; i < 100 && limiter.waiting() == 0; i++) Thread.sleep(5);
+      assertEquals(1, limiter.waiting());
+      var upload = limiter.open(user(), TransferDirection.UPLOAD);
+      assertEquals(2, limiter.activeTotal());
+      upload.complete(true);
+      download.complete(true);
+      waitingDownload.get().complete(true);
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
   void capsTransfersPerUserWhenConfigured() {
     var limiter =
         new NodeTransferLimiter(TransferLimiter.unlimited(), 100, 100, 100, 2, Duration.ZERO);

@@ -8,6 +8,7 @@ import io.github.scholiarw.hfg.storage.*;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.*;
 import org.junit.jupiter.api.*;
 
@@ -134,6 +135,49 @@ class TransferServiceTest {
   }
 
   @Test
+  void capacityRejectionDoesNotOpenAnHdfsStreamOrCreateStaging() throws Exception {
+    var bounded =
+        new TransferService(
+            u -> storage,
+            new PolicyEngine(new PathResolver()),
+            new NodeTransferLimiter(TransferLimiter.unlimited(), 1, 1, 1, 0, Duration.ZERO),
+            TransferEventSink.noop());
+    storage.files.put("/tenant/user_01/file.bin", new byte[] {1});
+    try (var first = bounded.openDownload(context, "/file.bin", 0)) {
+      assertEquals(1, storage.readOpens);
+      assertThrows(HfgException.class, () -> bounded.openDownload(context, "/file.bin", 0));
+      assertEquals(1, storage.readOpens);
+      assertThrows(
+          HfgException.class,
+          () -> bounded.openUpload(context, "/other.bin", UUID.randomUUID(), 0, true));
+      assertEquals(0, storage.writeCreates);
+    }
+  }
+
+  @Test
+  void secondUploadCannotTruncateAnInFlightStagingFile() throws Exception {
+    UUID id = UUID.randomUUID();
+    try (var first = service.openUpload(context, "/file.bin", id, 0, true)) {
+      first.write(ByteBuffer.wrap(new byte[] {1, 2}));
+      assertThrows(
+          IOException.class, () -> service.openUpload(context, "/file.bin", id, 0, true));
+      assertArrayEquals(new byte[] {1, 2}, storage.files.get(first.stagingPath()));
+    }
+  }
+
+  @Test
+  void failedAtomicReplacementKeepsTheOriginalTarget() throws Exception {
+    String target = "/tenant/user_01/file.bin";
+    storage.files.put(target, new byte[] {1, 2, 3});
+    storage.failReplace = true;
+    try (var upload = service.openUpload(context, "/file.bin", UUID.randomUUID(), 0, true)) {
+      upload.write(ByteBuffer.wrap(new byte[] {4, 5}));
+      assertThrows(IOException.class, upload::commit);
+    }
+    assertArrayEquals(new byte[] {1, 2, 3}, storage.files.get(target));
+  }
+
+  @Test
   void readOnlyGrantRejectsWrite() {
     var user =
         new UserSnapshot(
@@ -156,6 +200,9 @@ class TransferServiceTest {
   static final class MemoryStorage implements StorageClient {
     final Map<String, byte[]> files = new HashMap<>();
     final Set<String> dirs = new HashSet<>(Set.of("/", "/tenant", "/tenant/user_01"));
+    int readOpens;
+    int writeCreates;
+    boolean failReplace;
 
     public StorageEntry stat(String p) throws IOException {
       if (dirs.contains(p))
@@ -187,6 +234,7 @@ class TransferServiceTest {
     }
 
     public StorageReadHandle openRead(String p, long offset) throws IOException {
+      readOpens++;
       byte[] b = files.get(p);
       if (b == null) throw new FileNotFoundException(p);
       return new StorageReadHandle() {
@@ -213,6 +261,7 @@ class TransferServiceTest {
     }
 
     public StorageWriteHandle create(String p, boolean overwrite) throws IOException {
+      writeCreates++;
       if (!overwrite && files.containsKey(p)) throw new IOException("exists");
       return writer(p, new byte[0]);
     }
@@ -277,6 +326,13 @@ class TransferServiceTest {
       if (v == null) return false;
       files.put(b, v);
       return true;
+    }
+
+    public void renameReplace(String a, String b) throws IOException {
+      if (failReplace) throw new IOException("simulated rename failure");
+      byte[] value = files.remove(a);
+      if (value == null) throw new FileNotFoundException(a);
+      files.put(b, value);
     }
 
     public QuotaUsage quota(String p) {

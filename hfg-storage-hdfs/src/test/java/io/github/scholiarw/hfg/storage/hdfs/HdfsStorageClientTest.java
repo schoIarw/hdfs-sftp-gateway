@@ -1,13 +1,36 @@
 package io.github.scholiarw.hfg.storage.hdfs;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 import java.nio.ByteBuffer;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Test;
 
 class HdfsStorageClientTest {
+  @Test
+  void retiringPoolWaitsForAnOpenTransferBeforeClosingFileSystem() throws Exception {
+    FileSystem fs = mock(FileSystem.class);
+    FSDataInputStream input = mock(FSDataInputStream.class);
+    when(fs.open(any(Path.class))).thenReturn(input);
+    var storage = new HdfsStorageClient(fs);
+
+    var lease = storage.retain();
+    var handle = storage.openRead("/file.bin", 0);
+    storage.close();
+    verify(fs, never()).close();
+    handle.close();
+    handle.close();
+    verify(fs, never()).close();
+    lease.close();
+    verify(fs, times(1)).close();
+    assertThrows(java.io.IOException.class, () -> storage.openRead("/file.bin", 0));
+  }
+
   @Test
   void writesReadsAndListsUsingHadoopFileSystemContract() throws Exception {
     var conf = new Configuration(false);

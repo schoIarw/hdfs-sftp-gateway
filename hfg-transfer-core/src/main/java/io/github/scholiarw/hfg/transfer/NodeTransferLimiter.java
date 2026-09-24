@@ -14,8 +14,9 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * Bounds transfer work for one gateway node while delegating per-user rate limiting.
  *
- * <p>The per-user gate is acquired before the total gate and both share one timeout budget with the
- * direction gate. This prevents a burst from creating unbounded protocol/HDFS work while still
+ * <p>The per-user and direction gates are acquired before the total gate, sharing one timeout
+ * budget. A saturated download direction therefore cannot occupy all total permits while uploads
+ * remain idle. This prevents a burst from creating unbounded protocol/HDFS work while still
  * allowing short bursts to wait for capacity instead of failing immediately. Without the per-user
  * gate a single account (or a script opening many streams) could consume the entire node capacity
  * and starve every other user; {@code maxTransfersPerUser = 0} disables the per-user cap.
@@ -64,8 +65,8 @@ public final class NodeTransferLimiter implements TransferLimiter {
     ConcurrencyGate.Lease directionLease = null;
     try {
       userLease = userGate(user).acquire(remaining(deadline));
-      totalLease = total.acquire(remaining(deadline));
       directionLease = gate(direction).acquire(remaining(deadline));
+      totalLease = total.acquire(remaining(deadline));
       Permit delegated = delegate.open(user, direction, initialBytes);
       activeCounter(direction).incrementAndGet();
       return managed(delegated, direction, userLease, totalLease, directionLease);

@@ -22,9 +22,9 @@ final class ReloadableHdfsStorageClientFactory implements StorageClientFactory {
    * {@link StorageClient} (and its underlying {@code FileSystem}) from the old pool at open time;
    * closing it immediately would fail every ongoing read/write with "Filesystem closed". The upload
    * path is staging + atomic rename, so no partial file appears, but the transfer still aborts.
-   * Waiting out the grace lets transfers that started before the swap finish on the old pool. Note
-   * that a transfer holding a pooled client for longer than the grace period still races the close;
-   * this turns a guaranteed outage on every config change into a rare tail risk.
+   * Waiting out the grace lets recently started operations settle; after the grace period the old
+   * pool is retired, but its FileSystem remains alive until all retained upload transactions and
+   * open read/write handles are closed. Long-running transfers are therefore not cut off.
    */
   private static final Duration CLOSE_GRACE = Duration.ofMinutes(5);
 
