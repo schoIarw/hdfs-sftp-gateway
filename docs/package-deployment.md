@@ -1,4 +1,4 @@
-# HFG 0.1.11 Linux x86_64 编译介质部署手册
+# HFG 0.1.12 Linux x86_64 编译介质部署手册
 
 本文只使用发布页下载的编译后介质部署，不要求目标服务器具有源码、Git、Maven、Node.js 或 npm。HFG 分为两个进程：
 
@@ -9,8 +9,8 @@ Native 与 Docker 分别提供独立、自包含的压缩包，不再提供混�
 
 | 文件 | 用途 |
 |---|---|
-| `hfg-0.1.11-linux-x86_64-native.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus 和文档，不含 Docker 镜像 |
-| `hfg-0.1.11-linux-x86_64-docker.tar.gz` | Docker 镜像、Compose、配置、Keepalived、Prometheus 和文档，不含 Manager/Gateway Native JAR |
+| `hfg-0.1.12-linux-x86_64-native.tar.gz` | Native JAR、配置、systemd、Keepalived、Prometheus 和文档，不含 Docker 镜像 |
+| `hfg-0.1.12-linux-x86_64-docker.tar.gz` | Docker 镜像、Compose、配置、Keepalived、Prometheus 和文档，不含 Manager/Gateway Native JAR |
 | `SHA256SUMS` | 两个介质的 SHA-256 校验值 |
 | `bom.json` | CycloneDX SBOM |
 
@@ -20,12 +20,12 @@ Native 与 Docker 分别提供独立、自包含的压缩包，不再提供混�
 mkdir -p /tmp/hfg-install
 cd /tmp/hfg-install
 
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.11/hfg-0.1.11-linux-x86_64-native.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.11/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.12/hfg-0.1.12-linux-x86_64-native.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.12/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 
-tar -xzf hfg-0.1.11-linux-x86_64-native.tar.gz
-cd hfg-0.1.11-linux-x86_64-native
+tar -xzf hfg-0.1.12-linux-x86_64-native.tar.gz
+cd hfg-0.1.12-linux-x86_64-native
 uname -m
 cat RELEASE-INFO.txt
 ```
@@ -602,15 +602,15 @@ Docker 方式使用发布页提供的已编译 amd64 镜像，目标机不进行
 
 ```bash
 cd /tmp/hfg-install
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.11/hfg-0.1.11-linux-x86_64-docker.tar.gz
-curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.11/SHA256SUMS
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.12/hfg-0.1.12-linux-x86_64-docker.tar.gz
+curl -fLO https://github.com/schoIarw/hdfs-sftp-gateway/releases/download/v0.1.12/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
-tar -xzf hfg-0.1.11-linux-x86_64-docker.tar.gz
-cd hfg-0.1.11-linux-x86_64-docker
+tar -xzf hfg-0.1.12-linux-x86_64-docker.tar.gz
+cd hfg-0.1.12-linux-x86_64-docker
 docker load -i images/hfg-images.tar
 
-docker image inspect hfg-manager:0.1.11 --format '{{.Os}}/{{.Architecture}}'
-docker image inspect hfg-gateway:0.1.11 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-manager:0.1.12 --format '{{.Os}}/{{.Architecture}}'
+docker image inspect hfg-gateway:0.1.12 --format '{{.Os}}/{{.Architecture}}'
 ```
 
 两条命令都应输出 `linux/amd64`。镜像包只包含 HFG 镜像及 JRE 基础层；Compose 中 PostgreSQL、MySQL、Prometheus 镜像仍需从镜像仓库获取，完全离线环境应提前另行导入这些第三方镜像。
@@ -620,8 +620,8 @@ docker image inspect hfg-gateway:0.1.11 --format '{{.Os}}/{{.Architecture}}'
 PostgreSQL：
 
 ```bash
-cd /tmp/hfg-install/hfg-0.1.11-linux-x86_64-docker
-export HFG_VERSION=0.1.11
+cd /tmp/hfg-install/hfg-0.1.12-linux-x86_64-docker
+export HFG_VERSION=0.1.12
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
 # 演示栈关闭 gRPC；如需发布配置快照，先按 3.4 生成并 source bootstrap 文件
@@ -633,7 +633,7 @@ curl --fail http://127.0.0.1:8080/actuator/health/readiness
 MySQL：
 
 ```bash
-export HFG_VERSION=0.1.11
+export HFG_VERSION=0.1.12
 export HFG_DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
 export HFG_MYSQL_ROOT_PASSWORD='REPLACE_WITH_ROOT_PASSWORD'
 export HFG_ADMIN_PASSWORD='REPLACE_WITH_ADMIN_PASSWORD'
@@ -653,7 +653,7 @@ sudo install -d -m 0750 /etc/hfg /var/lib/hfg
 docker run --rm --user 0:0 --entrypoint java \
   -v "$PWD/tools/hfg-bootstrap.jar:/tool.jar:ro" \
   -v /etc/hfg:/etc/hfg \
-  hfg-manager:0.1.11 \
+  hfg-manager:0.1.12 \
   -jar /tool.jar --output /etc/hfg \
   --server-name hfg-manager.example.com --server-ip 10.0.10.10
 ```
@@ -673,7 +673,7 @@ docker run -d --name hfg-manager --restart unless-stopped \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
-  hfg-manager:0.1.11
+  hfg-manager:0.1.12
 
 docker logs --tail 200 hfg-manager
 curl --fail http://127.0.0.1:8080/actuator/health/readiness
@@ -693,7 +693,7 @@ sudo chown 10001:10001 /etc/hfg/ssh_host_ed25519_key
 sudo chmod 0700 /etc/hfg/pki
 sudo chmod 0600 /etc/hfg/ssh_host_ed25519_key
 sudo test -r /etc/krb5.conf
-export HFG_VERSION=0.1.11
+export HFG_VERSION=0.1.12
 docker compose -f docker/compose.gateway.yaml up -d
 docker compose -f docker/compose.gateway.yaml ps
 curl --fail http://127.0.0.1:18080/actuator/health/readiness
@@ -710,7 +710,7 @@ docker run -d --name hfg-gateway --restart unless-stopped \
   -v /var/lib/hfg:/var/lib/hfg \
   -v /etc/hfg:/etc/hfg:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
-  hfg-gateway:0.1.11
+  hfg-gateway:0.1.12
 ```
 
 Keepalived 仍运行在宿主机。介质中的健康脚本会先检查 systemd；未运行 Native 服务时，再检查名为 `hfg-gateway` 的容器或 Compose 标签 `com.docker.compose.service=hfg-gateway`，然后按环境文件检查已启用协议端口和实际管理端口。直接运行容器时必须保留 `--name hfg-gateway`。

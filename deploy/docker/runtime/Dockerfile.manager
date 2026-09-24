@@ -1,6 +1,6 @@
 FROM --platform=linux/amd64 eclipse-temurin:17-jre-jammy
 LABEL org.opencontainers.image.title="HFG Manager" \
-      org.opencontainers.image.version="0.1.11" \
+      org.opencontainers.image.version="0.1.12" \
       org.opencontainers.image.architecture="amd64"
 RUN useradd --system --uid 10001 --home /var/lib/hfg --shell /usr/sbin/nologin hfg \
     && install -d -o hfg -g hfg /app /var/lib/hfg /etc/hfg/pki

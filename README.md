@@ -40,9 +40,9 @@ make package
 
 The command validates the frontend and backend, builds the UI, and packages it into:
 
-- `hfg-manager-api/target/hfg-manager-api-0.1.11.jar`
-- `hfg-gateway-app/target/hfg-gateway-app-0.1.11.jar`
-- `hfg-common-contract/target/hfg-common-contract-0.1.11-bootstrap.jar`（CA、Manager 证书和快照密钥一键初始化）
+- `hfg-manager-api/target/hfg-manager-api-0.1.12.jar`
+- `hfg-gateway-app/target/hfg-gateway-app-0.1.12.jar`
+- `hfg-common-contract/target/hfg-common-contract-0.1.12-bootstrap.jar`（CA、Manager 证书和快照密钥一键初始化）
 
 Only Java 17 is needed to run these artifacts. Node.js is a build-time dependency only.
 
@@ -54,7 +54,7 @@ docker compose -f deploy/docker/compose.yaml up -d
 
 Before production deployment, read:
 
-- [HFG 0.1.11 release notes](docs/release-notes-v0.1.11.md)
+- [HFG 0.1.12 release notes](docs/release-notes-v0.1.12.md)
 - [System design and implementation](docs/implementation.md)
 - [Protocol capability matrix](docs/protocol-capability.md)
 - [Configuration reference](docs/configuration.md)
