@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class NodeTransferLimiterTest {
   @Test
   void rejectsBeyondNodeLimitAndReleasesExactlyOnce() {
-    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 1, 1, 1, Duration.ZERO);
+    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 1, 1, 1, 0, Duration.ZERO);
     var first = limiter.open(user(), TransferDirection.UPLOAD);
 
     HfgException rejected =
@@ -29,7 +29,7 @@ class NodeTransferLimiterTest {
 
   @Test
   void releasesTotalPermitWhenDirectionLimitRejects() {
-    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 2, 1, 1, Duration.ZERO);
+    var limiter = new NodeTransferLimiter(TransferLimiter.unlimited(), 2, 1, 1, 0, Duration.ZERO);
     var upload = limiter.open(user(), TransferDirection.UPLOAD);
 
     assertThrows(HfgException.class, () -> limiter.open(user(), TransferDirection.UPLOAD));
@@ -38,6 +38,43 @@ class NodeTransferLimiterTest {
 
     upload.complete(true);
     download.complete(true);
+  }
+
+  @Test
+  void capsTransfersPerUserWhenConfigured() {
+    var limiter =
+        new NodeTransferLimiter(TransferLimiter.unlimited(), 100, 100, 100, 2, Duration.ZERO);
+    UserSnapshot firstUser = user();
+    UserSnapshot secondUser = user();
+    var firstUpload = limiter.open(firstUser, TransferDirection.UPLOAD);
+    var firstDownload = limiter.open(firstUser, TransferDirection.DOWNLOAD);
+
+    // The first user has consumed its per-user quota (2) while the node is far from saturated.
+    HfgException rejected =
+        assertThrows(HfgException.class, () -> limiter.open(firstUser, TransferDirection.UPLOAD));
+    assertEquals(HfgErrorCode.RATE_LIMITED, rejected.code());
+    assertEquals(1, limiter.rejected());
+
+    // Another user is still admitted by the per-user gate.
+    assertDoesNotThrow(() -> limiter.open(secondUser, TransferDirection.UPLOAD).complete(true));
+
+    // Completing one transfer frees the slot for the same user again.
+    firstUpload.complete(true);
+    assertDoesNotThrow(() -> limiter.open(firstUser, TransferDirection.UPLOAD).complete(true));
+    firstDownload.complete(true);
+    assertEquals(0, limiter.activeTotal());
+  }
+
+  @Test
+  void perUserCapDoesNotLeakAcrossCompletion() {
+    var limiter =
+        new NodeTransferLimiter(TransferLimiter.unlimited(), 100, 100, 100, 1, Duration.ZERO);
+    UserSnapshot user = user();
+    var first = limiter.open(user, TransferDirection.UPLOAD);
+    first.complete(true);
+
+    assertDoesNotThrow(() -> limiter.open(user, TransferDirection.UPLOAD).complete(true));
+    assertEquals(0, limiter.rejected());
   }
 
   private static UserSnapshot user() {

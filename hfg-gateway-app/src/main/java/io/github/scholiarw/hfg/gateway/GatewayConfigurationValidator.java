@@ -10,6 +10,14 @@ import java.util.regex.Pattern;
 final class GatewayConfigurationValidator {
   private static final Pattern ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{1,127}");
 
+  /**
+   * Control-plane headroom that must remain after every transfer slot is occupied. Apache FtpServer
+   * runs control commands and blocking data copies on the same worker pool, and the SFTP subsystem
+   * pool executes transfer channels, so either pool smaller than the admission ceiling leaves no
+   * thread to answer commands while the node is saturated.
+   */
+  private static final int CONTROL_PLANE_MARGIN = 32;
+
   private GatewayConfigurationValidator() {}
 
   static void validate(GatewayProperties properties) throws IOException {
@@ -27,6 +35,8 @@ final class GatewayConfigurationValidator {
     requirePositive("HFG_MAX_ACTIVE_TRANSFERS", properties.concurrency().maxActiveTransfers());
     requirePositive("HFG_MAX_UPLOADS", properties.concurrency().maxUploads());
     requirePositive("HFG_MAX_DOWNLOADS", properties.concurrency().maxDownloads());
+    requireNonNegative(
+        "HFG_MAX_TRANSFERS_PER_USER", properties.concurrency().maxTransfersPerUser());
     requirePositive("HFG_TRANSFER_ACQUIRE_TIMEOUT", properties.concurrency().acquireTimeout());
     requirePositive("HFG_FTP_MAX_LOGINS", properties.ftp().maxLogins());
     requirePositive("HFG_FTP_WORKER_THREADS", properties.ftp().workerThreads());
@@ -34,6 +44,18 @@ final class GatewayConfigurationValidator {
     requirePositive("HFG_SFTP_MAX_CHANNELS", properties.sftp().maxChannels());
     requirePositive("HFG_SFTP_MAX_CHANNELS_PER_SESSION", properties.sftp().maxChannelsPerSession());
     requirePositive("HFG_SFTP_WORKER_THREADS", properties.sftp().workerThreads());
+    requirePoolHeadroom(
+        "HFG_FTP_WORKER_THREADS",
+        properties.ftp().workerThreads(),
+        "HFG_MAX_ACTIVE_TRANSFERS",
+        properties.concurrency().maxActiveTransfers(),
+        "the FTP worker pool also serves control commands while blocking data copies run");
+    requirePoolHeadroom(
+        "HFG_SFTP_WORKER_THREADS",
+        properties.sftp().workerThreads(),
+        "HFG_SFTP_MAX_CHANNELS",
+        properties.sftp().maxChannels(),
+        "the SFTP subsystem pool executes transfer channels");
     requireReadable("HFG_RPC_CA", properties.rpc().caCertificate());
     requireReadable("HFG_RPC_CLIENT_CERT", properties.rpc().clientCertificate());
     requireReadable("HFG_RPC_CLIENT_KEY", properties.rpc().clientPrivateKey());
@@ -75,6 +97,34 @@ final class GatewayConfigurationValidator {
 
   private static void requirePositive(String name, int value) {
     if (value < 1) throw new IllegalStateException(name + " must be a positive integer");
+  }
+
+  private static void requireNonNegative(String name, int value) {
+    if (value < 0) throw new IllegalStateException(name + " must be a non-negative integer");
+  }
+
+  /**
+   * Guards against configuring a protocol worker pool smaller than the transfer/channel admission
+   * ceiling it must serve: saturated transfers would leave no thread for control commands.
+   */
+  private static void requirePoolHeadroom(
+      String poolName, int poolSize, String limitName, int limit, String reason) {
+    int minimum = limit + CONTROL_PLANE_MARGIN;
+    if (poolSize < minimum)
+      throw new IllegalStateException(
+          poolName
+              + " ("
+              + poolSize
+              + ") must be at least "
+              + limitName
+              + " ("
+              + limit
+              + ") + "
+              + CONTROL_PLANE_MARGIN
+              + " ("
+              + minimum
+              + "); "
+              + reason);
   }
 
   private static void requireReadable(String name, Path path) {

@@ -84,8 +84,43 @@ class GatewayEventReporter implements TransferEventSink, AutoCloseable {
         if (running) log.warn("Transfer event WAL writer interrupted unexpectedly");
       } catch (RuntimeException failure) {
         log.error("Transfer event WAL writer failed", failure);
+        // A non-IOException failure (security/path exception) must not drop the batch silently:
+        // put the events back on the bounded queue and quarantine only what no longer fits, so a
+        // sustained outage preserves audit records instead of losing them.
+        requeueOrQuarantine(batch);
         batch.clear();
+        try {
+          Thread.sleep(1000);
+        } catch (InterruptedException interrupted) {
+          if (running) log.warn("Transfer event WAL writer interrupted unexpectedly");
+        }
       }
+    }
+  }
+
+  /**
+   * Re-enqueues a failed batch; lines that no longer fit are appended to a {@code .failed} file.
+   */
+  private void requeueOrQuarantine(List<String> batch) {
+    for (String line : batch) {
+      if (pending.offer(line)) continue;
+      try {
+        quarantineFailed(line);
+      } catch (IOException | RuntimeException quarantineFailure) {
+        log.error("Cannot quarantine transfer event after WAL failure", quarantineFailure);
+      }
+    }
+  }
+
+  private void quarantineFailed(String line) throws IOException {
+    Path wal = properties.snapshot().eventWalPath();
+    Path failed = wal.resolveSibling(wal.getFileName() + ".failed");
+    Files.createDirectories(failed.toAbsolutePath().getParent());
+    try (BufferedWriter output =
+        Files.newBufferedWriter(
+            failed, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+      output.write(line);
+      output.newLine();
     }
   }
 

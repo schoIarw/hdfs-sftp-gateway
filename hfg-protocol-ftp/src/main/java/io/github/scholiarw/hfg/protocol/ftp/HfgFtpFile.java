@@ -1,6 +1,7 @@
 package io.github.scholiarw.hfg.protocol.ftp;
 
 import io.github.scholiarw.hfg.contract.*;
+import io.github.scholiarw.hfg.storage.StorageEntry;
 import io.github.scholiarw.hfg.transfer.*;
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -8,26 +9,73 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ftpserver.ftplet.FtpFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 final class HfgFtpFile implements FtpFile {
+  private static final Logger log = LoggerFactory.getLogger(HfgFtpFile.class);
+
   private final UserSnapshot user;
   private final TransferService transfers;
   private final String cwd;
   private final String path;
   private final String gatewayId;
 
+  /**
+   * Status already fetched by the enclosing directory listing. A LIST reply reads roughly seven
+   * attributes per entry; resolving each one with a fresh HDFS getFileStatus RPC amplifies one
+   * listing into thousands of NameNode calls. Entries produced by {@link #listFiles()} carry their
+   * status here so attribute reads never touch the storage layer again.
+   */
+  private final StorageEntry known;
+
+  /** Lazily fetched status for path-created instances; fetched at most once per instance. */
+  private StorageEntry stat;
+
+  private boolean statAttempted;
+
   HfgFtpFile(
       UserSnapshot user, TransferService transfers, String cwd, String path, String gatewayId) {
+    this(user, transfers, cwd, path, gatewayId, null);
+  }
+
+  HfgFtpFile(
+      UserSnapshot user,
+      TransferService transfers,
+      String cwd,
+      String path,
+      String gatewayId,
+      StorageEntry known) {
     this.user = user;
     this.transfers = transfers;
     this.cwd = cwd;
     this.gatewayId = gatewayId;
     this.path = normalize(cwd, path);
+    this.known = known;
   }
 
   private TransferContext context() {
     return new TransferContext(
         user, Protocol.FTP, cwd, gatewayId, null, UUID.randomUUID().toString());
+  }
+
+  /**
+   * Returns the entry status with at most one storage RPC for the whole lifetime of this instance:
+   * either the listing already supplied it, or the first attribute read fetches it once and every
+   * later attribute read reuses the same result. Repeated RPCs within one LIST would otherwise hit
+   * the NameNode once per attribute.
+   */
+  private StorageEntry stat() {
+    if (known != null) return known;
+    if (stat == null && !statAttempted) {
+      statAttempted = true;
+      try {
+        stat = transfers.stat(context(), path);
+      } catch (Exception e) {
+        stat = null;
+      }
+    }
+    return stat;
   }
 
   @Override
@@ -47,40 +95,24 @@ final class HfgFtpFile implements FtpFile {
 
   @Override
   public boolean isDirectory() {
-    try {
-      return transfers.stat(context(), path).directory();
-    } catch (Exception e) {
-      return false;
-    }
+    StorageEntry entry = stat();
+    return entry != null && entry.directory();
   }
 
   @Override
   public boolean isFile() {
-    try {
-      return !transfers.stat(context(), path).directory();
-    } catch (Exception e) {
-      return false;
-    }
+    StorageEntry entry = stat();
+    return entry != null && !entry.directory();
   }
 
   @Override
   public boolean doesExist() {
-    try {
-      transfers.stat(context(), path);
-      return true;
-    } catch (Exception e) {
-      return false;
-    }
+    return stat() != null;
   }
 
   @Override
   public boolean isReadable() {
-    try {
-      transfers.stat(context(), path);
-      return true;
-    } catch (Exception e) {
-      return false;
-    }
+    return stat() != null;
   }
 
   @Override
@@ -96,20 +128,14 @@ final class HfgFtpFile implements FtpFile {
 
   @Override
   public String getOwnerName() {
-    try {
-      return transfers.stat(context(), path).owner();
-    } catch (Exception e) {
-      return user.username();
-    }
+    StorageEntry entry = stat();
+    return entry == null ? user.username() : entry.owner();
   }
 
   @Override
   public String getGroupName() {
-    try {
-      return transfers.stat(context(), path).group();
-    } catch (Exception e) {
-      return user.department();
-    }
+    StorageEntry entry = stat();
+    return entry == null ? user.department() : entry.group();
   }
 
   @Override
@@ -119,11 +145,8 @@ final class HfgFtpFile implements FtpFile {
 
   @Override
   public long getLastModified() {
-    try {
-      return transfers.stat(context(), path).modifiedAt().toEpochMilli();
-    } catch (Exception e) {
-      return 0;
-    }
+    StorageEntry entry = stat();
+    return entry == null ? 0 : entry.modifiedAt().toEpochMilli();
   }
 
   @Override
@@ -133,11 +156,8 @@ final class HfgFtpFile implements FtpFile {
 
   @Override
   public long getSize() {
-    try {
-      return transfers.stat(context(), path).length();
-    } catch (Exception e) {
-      return 0;
-    }
+    StorageEntry entry = stat();
+    return entry == null ? 0 : entry.length();
   }
 
   @Override
@@ -179,10 +199,15 @@ final class HfgFtpFile implements FtpFile {
   public List<? extends FtpFile> listFiles() {
     try {
       return transfers.list(context(), path, null, 10_000).stream()
-          .map(e -> new HfgFtpFile(user, transfers, "/", join(path, e.name()), gatewayId))
+          .map(e -> new HfgFtpFile(user, transfers, "/", join(path, e.name()), gatewayId, e))
           .toList();
-    } catch (Exception e) {
-      return null;
+    } catch (IOException | RuntimeException e) {
+      // Apache FtpServer's FtpFile.listFiles() declares no checked exception in 1.2.1, and a null
+      // return makes the reply formatter fail with an internal error (500). Log the real cause -
+      // e.g. a directory beyond the 10,000-entry scanning limit - and return an empty listing so
+      // the control channel stays usable instead of dropping the session.
+      log.error("Failed to list directory {}: {}", path, e.getMessage(), e);
+      return List.of();
     }
   }
 

@@ -78,7 +78,7 @@ class GatewayConfigurationValidatorTest {
                 200,
                 200,
                 4,
-                128));
+                256));
     IllegalStateException exception =
         assertThrows(
             IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
@@ -107,7 +107,7 @@ class GatewayConfigurationValidatorTest {
                 200,
                 200,
                 4,
-                128));
+                256));
     assertDoesNotThrow(() -> GatewayConfigurationValidator.validate(ftpOnly));
   }
 
@@ -121,7 +121,7 @@ class GatewayConfigurationValidatorTest {
             valid.snapshot(),
             valid.rpc(),
             valid.hdfs(),
-            new GatewayProperties.Concurrency(0, 80, 80, Duration.ofSeconds(10)),
+            new GatewayProperties.Concurrency(0, 80, 80, 16, Duration.ofSeconds(10)),
             valid.ftp(),
             valid.sftp());
 
@@ -129,6 +129,49 @@ class GatewayConfigurationValidatorTest {
         assertThrows(
             IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
     assertTrue(exception.getMessage().contains("HFG_MAX_ACTIVE_TRANSFERS"));
+  }
+
+  @Test
+  void rejectsWorkerPoolSmallerThanTransferCeilingPlusMargin() throws Exception {
+    GatewayProperties valid = properties("gateway-a", "group-a");
+    GatewayProperties invalid =
+        new GatewayProperties(
+            valid.gatewayId(),
+            valid.serviceGroupId(),
+            valid.snapshot(),
+            valid.rpc(),
+            valid.hdfs(),
+            valid.concurrency(),
+            new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300, 200, 120),
+            valid.sftp());
+
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
+    assertTrue(exception.getMessage().contains("HFG_FTP_WORKER_THREADS"));
+    assertTrue(exception.getMessage().contains("HFG_MAX_ACTIVE_TRANSFERS"));
+  }
+
+  @Test
+  void rejectsSftpWorkerPoolSmallerThanChannelCeilingPlusMargin() throws Exception {
+    GatewayProperties valid = properties("gateway-a", "group-a");
+    GatewayProperties invalid =
+        new GatewayProperties(
+            valid.gatewayId(),
+            valid.serviceGroupId(),
+            valid.snapshot(),
+            valid.rpc(),
+            valid.hdfs(),
+            valid.concurrency(),
+            valid.ftp(),
+            new GatewayProperties.Sftp(
+                true, "0.0.0.0", 22, valid.sftp().hostKeyPath(), null, 300, 200, 200, 4, 200));
+
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class, () -> GatewayConfigurationValidator.validate(invalid));
+    assertTrue(exception.getMessage().contains("HFG_SFTP_WORKER_THREADS"));
+    assertTrue(exception.getMessage().contains("HFG_SFTP_MAX_CHANNELS"));
   }
 
   private GatewayProperties properties(String gatewayId, String groupId) throws Exception {
@@ -156,8 +199,8 @@ class GatewayConfigurationValidatorTest {
             18080,
             Duration.ofSeconds(10)),
         new GatewayProperties.Hdfs(temp.resolve("hdfs-runtime"), Duration.ofMinutes(1)),
-        new GatewayProperties.Concurrency(120, 80, 80, Duration.ofSeconds(10)),
-        new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300, 200, 128),
-        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey, null, 300, 200, 200, 4, 128));
+        new GatewayProperties.Concurrency(120, 80, 80, 16, Duration.ofSeconds(10)),
+        new GatewayProperties.Ftp(true, "0.0.0.0", 21, "30000-31000", false, 300, 200, 256),
+        new GatewayProperties.Sftp(true, "0.0.0.0", 22, hostKey, null, 300, 200, 200, 4, 256));
   }
 }
