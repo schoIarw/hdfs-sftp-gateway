@@ -45,7 +45,7 @@ class GatewayConfiguration {
     return bcrypt::matches;
   }
 
-  @Bean
+  @Bean(destroyMethod = "close")
   ReloadableHdfsStorageClientFactory storageFactory() {
     return new ReloadableHdfsStorageClientFactory();
   }
@@ -64,6 +64,7 @@ class GatewayConfiguration {
             c.maxActiveTransfers(),
             c.maxUploads(),
             c.maxDownloads(),
+            c.maxTransfersPerUser(),
             c.acquireTimeout());
     Gauge.builder("hfg.transfers.active", limiter, NodeTransferLimiter::activeTotal)
         .description("Active transfers admitted on this gateway")
